@@ -135,6 +135,14 @@ function startListeners() {
     window.__S.edits = snap.val() || {};
     updateAll();
   });
+
+  onValue(ref(db, 'seatAssignments'), (snap) => {
+    window.__S.seatAssignments = snap.val() || {};
+    if (window.__S.selectedKey) {
+      const p = window.__S.audience.find(x => x.key === window.__S.selectedKey);
+      if (p) updatePersonCard(p);
+    }
+  });
 }
 
 // Firebase에 데이터 쓰기 (window에 노출)
@@ -411,10 +419,47 @@ code{background:var(--bg3);border:1px solid var(--border);padding:1px 5px;border
         <div class="person-card">
           <div class="pc-row"><span class="pc-label">📛 성명</span><span class="pc-value" id="pc-name">—</span></div>
           <div class="pc-row"><span class="pc-label">📱 연락처</span><span class="pc-value" id="pc-phone">—</span></div>
-          <div class="pc-row"><span class="pc-label">🎫 신청인원</span><span class="pc-value" id="pc-count">—</span></div>
+          <div class="pc-row"><span class="pc-label">🎫 동반인원</span><span class="pc-value" id="pc-count">—</span></div>
+          <div class="pc-row"><span class="pc-label">🪑 배정 좌석</span><span class="pc-value" id="pc-seat" style="color:#93c5fd;">미배정</span></div>
           <div class="pc-row"><span class="pc-label">📊 상태</span><span id="pc-status" class="badge badge-pending">배부대기</span></div>
         </div>
-        <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+
+        <!-- 좌석 배정 섹션 -->
+        <div id="seatAssignSection" style="margin-top:12px;background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:12px;">
+          <div style="font-size:12px;font-weight:600;color:#93c5fd;margin-bottom:10px;">🪑 좌석 배정</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+            <button class="seat-assign-opt active" id="opt-auto" onclick="setSeatOpt('auto')"
+              style="padding:8px;border:1px solid #3b82f6;border-radius:6px;background:rgba(59,130,246,0.2);color:#93c5fd;font-size:12px;font-weight:600;cursor:pointer;">
+              🎲 임의 배정
+            </button>
+            <button class="seat-assign-opt" id="opt-manual" onclick="setSeatOpt('manual')"
+              style="padding:8px;border:1px solid #475569;border-radius:6px;background:transparent;color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer;">
+              ✏️ 지정 배정
+            </button>
+          </div>
+          <div id="manualSeatInput" style="display:none;margin-bottom:10px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+              <div>
+                <div style="font-size:10px;color:#64748b;margin-bottom:4px;">구역</div>
+                <select id="seat-block" class="input" style="font-size:13px;padding:8px;">
+                  <option value="">선택</option>
+                  <option>A블록</option><option>B블록</option><option>C블록</option>
+                  <option>D블록</option><option>E블록</option>
+                </select>
+              </div>
+              <div>
+                <div style="font-size:10px;color:#64748b;margin-bottom:4px;">열</div>
+                <input class="input" id="seat-row" type="number" min="1" max="25" placeholder="1~25" style="font-size:13px;padding:8px;">
+              </div>
+              <div>
+                <div style="font-size:10px;color:#64748b;margin-bottom:4px;">좌석</div>
+                <input class="input" id="seat-num" type="number" min="1" max="12" placeholder="번호" style="font-size:13px;padding:8px;">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <button class="btn btn-success" id="distributeBtn">✅ 배부 완료</button>
           <button class="btn btn-danger" id="undoBtn" style="display:none;">↩ 배부 취소</button>
         </div>
@@ -483,9 +528,13 @@ code{background:var(--bg3);border:1px solid var(--border);padding:1px 5px;border
         <span style="color:#94a3b8;">📱 연락처</span>
         <span style="color:#f1f5f9;font-weight:600;" id="si-phone">—</span>
       </div>
-      <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:14px;">
-        <span style="color:#94a3b8;">🎫 신청인원</span>
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #334155;font-size:14px;">
+        <span style="color:#94a3b8;">🎫 인원</span>
         <span style="color:#f1f5f9;font-weight:600;" id="si-count">—</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:14px;">
+        <span style="color:#94a3b8;">🪑 배정 좌석</span>
+        <span style="color:#86efac;font-weight:600;" id="si-seat">—</span>
       </div>
     </div>
     <button onclick="document.getElementById('seatInfoModal').style.display='none'"
@@ -531,6 +580,8 @@ window.__S = {
   seatLayout: null,
   distributed: {},
   edits: {},
+  seatAssignments: {},
+  seatOpt: 'auto',
   selectedKey: null,
   currentFloor: 1
 };
@@ -543,6 +594,7 @@ function localSave() {
     localStorage.setItem('kbs_v2_seatLayout', JSON.stringify(S.seatLayout));
     localStorage.setItem('kbs_v2_distributed', JSON.stringify(S.distributed));
     localStorage.setItem('kbs_v2_edits', JSON.stringify(S.edits));
+    localStorage.setItem('kbs_v2_seatAssign', JSON.stringify(S.seatAssignments));
   } catch(e) {}
 }
 
@@ -556,6 +608,8 @@ function localLoad() {
     if (sl) S.seatLayout = JSON.parse(sl);
     if (d) S.distributed = JSON.parse(d);
     if (ed) S.edits = JSON.parse(ed);
+    const sa = localStorage.getItem('kbs_v2_seatAssign');
+    if (sa) S.seatAssignments = JSON.parse(sa);
   } catch(e) {}
 }
 
@@ -807,6 +861,13 @@ function renderResults(query) {
 
 function selectPerson(key) {
   S.selectedKey = key;
+  S.seatOpt = 'auto';
+  // 좌석 입력 초기화
+  const blockEl = document.getElementById('seat-block');
+  const rowEl = document.getElementById('seat-row');
+  const numEl = document.getElementById('seat-num');
+  if (blockEl) { blockEl.value = ''; rowEl.value = ''; numEl.value = ''; }
+  setSeatOpt('auto');
   const p = S.audience.find(x => x.key===key);
   if (!p) return;
   renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
@@ -827,12 +888,26 @@ function updatePersonCard(p) {
   document.getElementById('personCard').style.display = 'block';
   document.getElementById('pc-name').textContent = getN(p);
   document.getElementById('pc-phone').textContent = '****'+getPh(p);
-  document.getElementById('pc-count').textContent = getCt(p)+'명';
+  const ct = parseInt(getCt(p)) || 1;
+  document.getElementById('pc-count').textContent = '본인 포함 '+ct+'명 (동반 '+(ct-1)+'명)';
   const st = document.getElementById('pc-status');
   st.textContent = done ? '✓ 배부완료' : '배부대기';
   st.className = 'badge '+(done?'badge-done':'badge-pending');
   document.getElementById('distributeBtn').style.display = done ? 'none' : '';
   document.getElementById('undoBtn').style.display = done ? '' : 'none';
+  // 배정 좌석 표시
+  const seatInfo = S.seatAssignments && S.seatAssignments[p.key];
+  const seatEl = document.getElementById('pc-seat');
+  if (seatInfo && seatInfo.type === 'manual') {
+    seatEl.textContent = seatInfo.block + ' ' + seatInfo.row + '열 ' + seatInfo.num + '번';
+    seatEl.style.color = '#86efac';
+  } else if (seatInfo && seatInfo.type === 'auto') {
+    seatEl.textContent = '임의 배정';
+    seatEl.style.color = '#fcd34d';
+  } else {
+    seatEl.textContent = '미배정';
+    seatEl.style.color = '#64748b';
+  }
   document.getElementById('edit-name').value = getN(p);
   document.getElementById('edit-phone').value = getPh(p);
   document.getElementById('edit-count').value = getCt(p);
@@ -842,19 +917,41 @@ document.getElementById('distributeBtn').addEventListener('click', () => {
   if (!S.selectedKey) return;
   const p = S.audience.find(x=>x.key===S.selectedKey);
   if (!p) return;
+
+  // 좌석 배정 저장
+  if (S.seatOpt === 'manual') {
+    const block = document.getElementById('seat-block').value;
+    const row = document.getElementById('seat-row').value;
+    const num = document.getElementById('seat-num').value;
+    if (!block || !row || !num) {
+      showMsg('assignMsg', '⚠️ 구역, 열, 좌석번호를 모두 입력해주세요', 'error'); return;
+    }
+    S.seatAssignments[S.selectedKey] = { type:'manual', block, row, num };
+  } else {
+    S.seatAssignments[S.selectedKey] = { type:'auto' };
+  }
+  saveData('seatAssignments', S.seatAssignments);
+
   S.distributed[S.selectedKey] = true;
   saveData('distributed', S.distributed);
   updateStats(); updatePersonCard(p);
   renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
   if (S.seatLayout) renderSeatingChart();
-  showMsg('assignMsg', '✓ '+getN(p)+'님 배부 완료!', 'success');
+
+  const seatInfo = S.seatAssignments[S.selectedKey];
+  const seatStr = seatInfo.type === 'manual'
+    ? seatInfo.block + ' ' + seatInfo.row + '열 ' + seatInfo.num + '번'
+    : '임의 배정';
+  showMsg('assignMsg', '✓ '+getN(p)+'님 배부 완료 ('+seatStr+')', 'success');
 });
 
 document.getElementById('undoBtn').addEventListener('click', () => {
   const p = S.audience.find(x=>x.key===S.selectedKey);
   showConfirm('배부 취소', getN(p)+'님의 배부를 취소하시겠습니까?', () => {
     delete S.distributed[S.selectedKey];
+    delete S.seatAssignments[S.selectedKey];
     saveData('distributed', S.distributed);
+    saveData('seatAssignments', S.seatAssignments);
     updateStats(); updatePersonCard(p);
     renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
     if (S.seatLayout) renderSeatingChart();
@@ -984,13 +1081,50 @@ function switchTab(name) {
   if (name==='status' && S.seatLayout) renderSeatingChart();
 }
 
+// ========== 좌석 배정 옵션 ==========
+function setSeatOpt(opt) {
+  S.seatOpt = opt;
+  const autoBtn = document.getElementById('opt-auto');
+  const manualBtn = document.getElementById('opt-manual');
+  const manualInput = document.getElementById('manualSeatInput');
+  if (opt === 'auto') {
+    autoBtn.style.borderColor = '#3b82f6';
+    autoBtn.style.background = 'rgba(59,130,246,0.2)';
+    autoBtn.style.color = '#93c5fd';
+    manualBtn.style.borderColor = '#475569';
+    manualBtn.style.background = 'transparent';
+    manualBtn.style.color = '#94a3b8';
+    manualInput.style.display = 'none';
+  } else {
+    manualBtn.style.borderColor = '#3b82f6';
+    manualBtn.style.background = 'rgba(59,130,246,0.2)';
+    manualBtn.style.color = '#93c5fd';
+    autoBtn.style.borderColor = '#475569';
+    autoBtn.style.background = 'transparent';
+    autoBtn.style.color = '#94a3b8';
+    manualInput.style.display = 'block';
+  }
+}
+
 // ========== 좌석 클릭 정보 표시 ==========
 function showSeatInfo(audienceIdx) {
   const p = S.audience[audienceIdx];
   if (!p) return;
+  const ct = parseInt(getCt(p)) || 1;
   document.getElementById('si-name').textContent = getN(p);
   document.getElementById('si-phone').textContent = '****' + getPh(p);
-  document.getElementById('si-count').textContent = getCt(p) + '명';
+  document.getElementById('si-count').textContent = '본인 포함 ' + ct + '명';
+  const sa = S.seatAssignments && S.seatAssignments[p.key];
+  const seatEl = document.getElementById('si-seat');
+  if (sa && sa.type === 'manual') {
+    seatEl.textContent = sa.block + ' ' + sa.row + '열 ' + sa.num + '번';
+  } else if (sa && sa.type === 'auto') {
+    seatEl.textContent = '임의 배정';
+    seatEl.style.color = '#fcd34d';
+  } else {
+    seatEl.textContent = '정보 없음';
+    seatEl.style.color = '#64748b';
+  }
   const modal = document.getElementById('seatInfoModal');
   modal.style.display = 'flex';
 }
