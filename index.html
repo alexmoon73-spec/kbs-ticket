@@ -997,16 +997,32 @@ function renderSeatingChart() {
   const blocks = S.seatLayout[floorKey];
   if (!blocks) return;
 
-  const doneIndices = new Set();
-  S.audience.forEach((p,i) => { if(S.distributed[p.key]) doneIndices.add(i); });
-  const total = S.audience.length;
-  const selIdx = S.selectedKey ? S.audience.findIndex(p=>p.key===S.selectedKey) : -1;
+  // ── 지정 배정된 좌석 맵 구성: "블록|열|번" → personKey ──
+  const manualSeatMap = {};   // "A블록|3|5" → personKey
+  const autoPersonKeys = new Set(); // 임의 배정 완료자
 
-  let totalSeats = 0;
+  S.audience.forEach(p => {
+    if (!S.distributed[p.key]) return;
+    const sa = S.seatAssignments && S.seatAssignments[p.key];
+    if (sa && sa.type === 'manual') {
+      const k = sa.block + '|' + sa.row + '|' + sa.num;
+      manualSeatMap[k] = p.key;
+    } else {
+      autoPersonKeys.add(p.key);
+    }
+  });
+
+  // 선택된 관객의 지정 좌석
+  const selPerson = S.selectedKey ? S.audience.find(p=>p.key===S.selectedKey) : null;
+  const selSA = selPerson && S.seatAssignments && S.seatAssignments[S.selectedKey];
+  const selManualKey = (selSA && selSA.type==='manual')
+    ? (selSA.block + '|' + selSA.row + '|' + selSA.num) : null;
+
+  // 임의 배정 완료자를 좌석에 순서대로 배분 (지정 배정 좌석 제외)
+  const autoQueue = Array.from(autoPersonKeys);
+  let autoQueueIdx = 0;
+
   const blockOrder = ['A블록','B블록','C블록','D블록','E블록'];
-  blockOrder.forEach(bn => { const blk=blocks[bn]; if(blk&&blk.rows) Object.values(blk.rows).forEach(s=>totalSeats+=s.length); });
-
-  let seatIdx = 0;
   let html = '<div class="stage">🎵 무 대 🎵</div><div class="floor-layout">';
 
   blockOrder.forEach(bname => {
@@ -1021,19 +1037,46 @@ function renderSeatingChart() {
       const seats = blk.rows[rn];
       html += `<div class="seat-row${isRight?' r-align':''}"><div class="row-lbl">${rn}</div>`;
       seats.forEach(sn => {
-        const ratio = totalSeats>1 ? seatIdx/(totalSeats-1) : 0;
-        const aidx = Math.round(ratio * Math.max(total-1,0));
-        const isDone = doneIndices.has(aidx);
-        const isHL = aidx===selIdx && selIdx>=0;
-        const cls = 'seat'+(isHL?' highlight':(isDone?' occupied':''));
-        const clickAttr = isDone ? `onclick="showSeatInfo(${aidx})" style="cursor:pointer;"` : '';
+        const seatKey = bname + '|' + rn + '|' + sn;
+        let cls = 'seat';
+        let clickAttr = '';
+        let personKey = null;
+
+        if (manualSeatMap[seatKey]) {
+          // 지정 배정된 좌석
+          personKey = manualSeatMap[seatKey];
+          if (selManualKey === seatKey) {
+            cls = 'seat highlight';
+          } else {
+            cls = 'seat occupied';
+          }
+          const aidx = S.audience.findIndex(p=>p.key===personKey);
+          clickAttr = `onclick="showSeatInfo(${aidx})" style="cursor:pointer;"`;
+        } else if (selManualKey === seatKey) {
+          // 현재 선택 중인 관객이 지정한 좌석 (아직 배부 전)
+          cls = 'seat highlight';
+        } else {
+          // 임의 배정 순서대로 채우기
+          if (autoQueueIdx < autoQueue.length) {
+            const aKey = autoQueue[autoQueueIdx];
+            autoQueueIdx++;
+            if (S.selectedKey === aKey) {
+              cls = 'seat highlight';
+            } else {
+              cls = 'seat occupied';
+            }
+            const aidx = S.audience.findIndex(p=>p.key===aKey);
+            clickAttr = `onclick="showSeatInfo(${aidx})" style="cursor:pointer;"`;
+          }
+        }
+
         html += `<div class="${cls}" title="${bname} ${rn}열 ${sn}번" ${clickAttr}>${sn}</div>`;
-        seatIdx++;
       });
       html += '</div>';
     });
     html += '</div></div>';
   });
+
   html += '</div>';
   inner.innerHTML = html;
 }
