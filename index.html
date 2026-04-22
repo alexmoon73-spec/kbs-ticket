@@ -2,19 +2,12 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>KBS 국악관현악단 — 티켓 배부 관리</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-
-<!-- ============================================================
-     🔥 FIREBASE 설정
-     Firebase 콘솔 > 프로젝트 설정 > 내 앱 > SDK 설정에서
-     아래 FIREBASE_CONFIG 값을 교체하세요
-     ============================================================ -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, set, onValue, update, remove, get }
-  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyCknTRjGkE3jcCOWuyEUc17Yta835aNRpg",
@@ -26,141 +19,83 @@ const FIREBASE_CONFIG = {
   appId:             "1:566270075369:web:39353223a4f29b73d06b78"
 };
 
-// Firebase 초기화
 let db = null;
-let fbReady = false;
+window.__fbReady = false;
 
 function initFirebase() {
   try {
-    if (FIREBASE_CONFIG.apiKey === "YOUR_API_KEY") {
-      window.__fbMode = 'local';
-      showFbBanner('local');
-      return;
-    }
     const app = initializeApp(FIREBASE_CONFIG);
     db = getDatabase(app);
-    window.__fbMode = 'firebase';
+    window.__fbReady = true;
+    window.__fbDb = db;
     window.__fbRef = ref;
     window.__fbSet = set;
     window.__fbOnValue = onValue;
-    window.__fbUpdate = update;
-    window.__fbRemove = remove;
-    window.__fbGet = get;
-    window.__fbDb = db;
-    fbReady = true;
-    showFbBanner('firebase');
+    document.getElementById('fbBanner').textContent = '🔥 Firebase 실시간 연동 중 — 모든 기기가 동기화됩니다';
+    document.getElementById('fbBanner').className = 'fb-banner fb-ok';
     showLoading('Firebase 데이터 동기화 중...');
     startListeners();
-    // 5초 후에도 로딩 중이면 자동 숨김 (안전장치)
-    setTimeout(hideLoading, 5000);
+    setTimeout(hideLoading, 6000);
   } catch(e) {
-    console.error('Firebase 초기화 실패:', e);
-    window.__fbMode = 'local';
-    showFbBanner('error', e.message);
-  }
-}
-
-function showFbBanner(mode, msg) {
-  const el = document.getElementById('fbBanner');
-  if (!el) return;
-  if (mode === 'firebase') {
-    el.innerHTML = '🔥 Firebase 실시간 연동 중 — 모든 기기가 동기화됩니다';
-    el.className = 'fb-banner fb-ok';
-  } else if (mode === 'local') {
-    el.innerHTML = '💾 로컬 모드 — Firebase 설정값을 입력하면 실시간 동기화가 활성화됩니다';
-    el.className = 'fb-banner fb-warn';
-  } else {
-    el.innerHTML = '❌ Firebase 연결 실패: ' + msg + ' — 로컬 모드로 동작합니다';
-    el.className = 'fb-banner fb-error';
-  }
-}
-
-// Firebase 실시간 리스너
-function startListeners() {
-  if (!fbReady) return;
-
-  // 관객 데이터
-  onValue(ref(db, 'audience'), (snap) => {
-    const val = snap.val();
+    document.getElementById('fbBanner').textContent = '💾 로컬 모드 (Firebase 연결 실패)';
+    document.getElementById('fbBanner').className = 'fb-banner fb-warn';
     hideLoading();
+  }
+}
+
+function startListeners() {
+  onValue(ref(db, 'audience'), snap => {
+    const val = snap.val();
     if (val) {
-      // Firebase는 배열을 객체로 저장하므로 배열로 복원
       window.__S.audience = Array.isArray(val) ? val : Object.values(val).filter(x=>x&&x.key);
       afterDataLoad();
     }
-  });
-
-  // 배부 현황
-  onValue(ref(db, 'distributed'), (snap) => {
-    window.__S.distributed = snap.val() || {};
     hideLoading();
-    updateAll();
-    // 현재 선택된 관객 카드 갱신
-    if (window.__S.selectedKey) {
-      const p = window.__S.audience.find(x => x.key === window.__S.selectedKey);
-      if (p) updatePersonCard(p);
-    }
   });
-
-  // 좌석배치도
-  onValue(ref(db, 'seatLayout'), (snap) => {
+  onValue(ref(db, 'distributed'), snap => {
+    window.__S.distributed = snap.val() || {};
+    hideLoading(); updateAll();
+    if (window.__S.selectedKey) { const p = window.__S.audience.find(x=>x.key===window.__S.selectedKey); if(p) updatePersonCard(p); }
+  });
+  onValue(ref(db, 'seatLayout'), snap => {
     const val = snap.val();
     if (val) {
-      // Firebase 저장 시 숫자 키가 문자열로 변환됨 → rows 구조 정규화
-      const normalized = {};
-      ['floor1','floor2'].forEach(fl => {
-        normalized[fl] = {};
-        if (!val[fl]) return;
-        Object.keys(val[fl]).forEach(bname => {
-          const blk = val[fl][bname];
-          if (!blk) return;
-          const newRows = {};
-          Object.keys(blk.rows||{}).forEach(k => { newRows[parseInt(k)] = blk.rows[k]; });
-          normalized[fl][bname] = {...blk, rows: newRows};
-        });
-      });
-      window.__S.seatLayout = normalized;
-      document.getElementById('noSeatMsg').style.display = 'none';
-      document.getElementById('seatChartCard').style.display = 'block';
-      document.getElementById('seatLoaded').textContent = '✓ Firebase에서 좌석배치도 로드됨';
-      document.getElementById('seatLoaded').style.display = 'block';
-      document.getElementById('seatReplace').style.display = '';
-      hideLoading();
-      updateAll();
+      window.__S.seatLayout = normalizeSeatLayout(val);
+      hideLoading(); updateAll();
     }
   });
-
-  // 수정 데이터
-  onValue(ref(db, 'edits'), (snap) => {
-    window.__S.edits = snap.val() || {};
+  onValue(ref(db, 'edits'), snap => { window.__S.edits = snap.val() || {}; updateAll(); });
+  onValue(ref(db, 'seatAssignments'), snap => {
+    const raw = snap.val() || {};
+    // 이전 버전 호환: 단일 객체이면 배열로 변환
+    const normalized = {};
+    Object.keys(raw).forEach(k => {
+      const v = raw[k];
+      if (Array.isArray(v)) normalized[k] = v;
+      else if (v && typeof v === 'object' && v.type) normalized[k] = [v];
+      else normalized[k] = v;
+    });
+    window.__S.seatAssignments = normalized;
     updateAll();
+    if (window.__S.selectedKey) { const p = window.__S.audience.find(x=>x.key===window.__S.selectedKey); if(p) updatePersonCard(p); }
   });
-
-  onValue(ref(db, 'seatAssignments'), (snap) => {
-    window.__S.seatAssignments = snap.val() || {};
-    if (window.__S.selectedKey) {
-      const p = window.__S.audience.find(x => x.key === window.__S.selectedKey);
-      if (p) updatePersonCard(p);
-    }
+  onValue(ref(db, 'specialSeats'), snap => {
+    window.__S.specialSeats = snap.val() || {};
+    updateAll();
+    if (document.getElementById('status').classList.contains('active')) renderSeatingChart();
+  });
+  onValue(ref(db, 'extraPersons'), snap => {
+    window.__S.extraPersons = snap.val() || {};
+    updateAll();
   });
 }
 
-// Firebase에 데이터 쓰기 (window에 노출)
 window.__fbSave = async function(path, data) {
-  if (!fbReady) { localSave(); return; }
-  try {
-    await set(ref(db, path), data);
-  } catch(e) { console.error('FB 저장 실패:', e); }
+  if (!window.__fbReady) { localSave(); return; }
+  try { await set(ref(db, path), data); } catch(e) { console.error(e); }
+  localSave();
 };
 
-window.__fbUpdate = async function(path, data) {
-  if (!fbReady) { localSave(); return; }
-  try {
-    await update(ref(db, path), data);
-  } catch(e) { console.error('FB 업데이트 실패:', e); }
-};
-
-// 초기화
 document.addEventListener('DOMContentLoaded', initFirebase);
 </script>
 
@@ -170,342 +105,257 @@ document.addEventListener('DOMContentLoaded', initFirebase);
   --border:#334155; --border2:#475569;
   --text:#e2e8f0; --text2:#94a3b8; --text3:#64748b;
   --blue:#3b82f6; --green:#10b981; --red:#ef4444;
-  --yellow:#f59e0b; --purple:#8b5cf6;
+  --yellow:#f59e0b; --purple:#8b5cf6; --orange:#f97316;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
-html,body{height:100%;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
-
-/* Firebase 배너 */
-.fb-banner{padding:8px 16px;font-size:12px;font-weight:500;text-align:center;position:sticky;top:0;z-index:200;}
+.fb-banner{padding:7px 16px;font-size:12px;font-weight:500;text-align:center;position:sticky;top:0;z-index:300;}
 .fb-ok{background:rgba(16,185,129,0.2);color:#86efac;border-bottom:1px solid var(--green);}
 .fb-warn{background:rgba(245,158,11,0.15);color:#fcd34d;border-bottom:1px solid var(--yellow);}
-.fb-error{background:rgba(239,68,68,0.15);color:#fca5a5;border-bottom:1px solid var(--red);}
-
-/* 헤더 */
-.header{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 20px;position:sticky;top:33px;z-index:100;}
-.header-inner{max-width:1400px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
-.header h1{font-size:16px;font-weight:700;color:#f1f5f9;}
-.header p{font-size:11px;color:var(--text3);}
-
-/* 탭 */
-.tabs{display:flex;background:var(--bg2);border-bottom:2px solid var(--border);position:sticky;top:86px;z-index:99;}
-.tab{flex:1;padding:10px 8px;text-align:center;cursor:pointer;font-size:12px;font-weight:500;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;white-space:nowrap;}
+.header{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 16px;position:sticky;top:29px;z-index:200;}
+.header-inner{max-width:1400px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.header h1{font-size:15px;font-weight:700;color:#f1f5f9;}
+.header p{font-size:10px;color:var(--text3);}
+.tabs{display:flex;background:var(--bg2);border-bottom:2px solid var(--border);position:sticky;top:79px;z-index:199;}
+.tab{flex:1;padding:9px 4px;text-align:center;cursor:pointer;font-size:11px;font-weight:500;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;white-space:nowrap;}
 .tab.active{color:#f1f5f9;border-bottom-color:var(--blue);}
-.tab:hover:not(.active){color:var(--text2);}
-.tab-icon{display:block;font-size:16px;margin-bottom:2px;}
-.tab-content{display:none;padding:16px;max-width:1400px;margin:0 auto;}
+.tab-icon{display:block;font-size:15px;margin-bottom:2px;}
+.tab-content{display:none;padding:12px;max-width:1400px;margin:0 auto;}
 .tab-content.active{display:block;}
-
-/* 카드 */
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;}
-.card-title{font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:12px;display:flex;align-items:center;gap:6px;}
-
-/* 업로드 */
-.upload-area{border:2px dashed var(--border2);border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:all 0.2s;}
-.upload-area:hover,.upload-area.drag{border-color:var(--blue);background:rgba(59,130,246,0.05);}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;}
+.card-title{font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:10px;}
+.upload-area{border:2px dashed var(--border2);border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:all 0.2s;margin-bottom:10px;}
+.upload-area:hover{border-color:var(--blue);background:rgba(59,130,246,0.05);}
 .upload-area input{display:none;}
-.upload-icon{font-size:28px;margin-bottom:6px;}
-.upload-label{font-size:13px;color:var(--text2);}
-.upload-hint{font-size:11px;color:var(--text3);margin-top:4px;}
-.loaded-badge{background:rgba(16,185,129,0.1);border:1px solid var(--green);border-radius:6px;padding:8px 12px;font-size:12px;color:#86efac;margin-top:8px;}
-.replace-warning{background:rgba(245,158,11,0.1);border:1px solid var(--yellow);border-radius:8px;padding:10px 12px;font-size:12px;color:#fcd34d;margin-top:8px;}
-
-/* 버튼 */
-.btn{padding:10px 16px;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;}
+.loaded-badge{background:rgba(16,185,129,0.1);border:1px solid var(--green);border-radius:6px;padding:7px 10px;font-size:12px;color:#86efac;margin-top:6px;}
+.replace-warn{background:rgba(245,158,11,0.1);border:1px solid var(--yellow);border-radius:6px;padding:7px 10px;font-size:11px;color:#fcd34d;margin-top:6px;}
+.btn{padding:9px 14px;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;}
 .btn-primary{background:linear-gradient(135deg,var(--blue),#1d4ed8);color:white;}
 .btn-success{background:linear-gradient(135deg,var(--green),#059669);color:white;}
 .btn-danger{background:linear-gradient(135deg,var(--red),#b91c1c);color:white;}
 .btn-ghost{background:transparent;border:1px solid var(--border2);color:var(--text2);}
-.btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,0.3);}
+.btn-orange{background:linear-gradient(135deg,var(--orange),#ea580c);color:white;}
+.btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,0.3);}
 .btn:disabled{opacity:0.5;cursor:not-allowed;transform:none;}
-
-/* 배지 */
 .badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;}
 .badge-pending{background:rgba(239,68,68,0.15);color:#fca5a5;}
 .badge-done{background:rgba(16,185,129,0.15);color:#86efac;}
-
-/* 입력 */
-.input{width:100%;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:14px;}
+.badge-vip{background:rgba(245,158,11,0.2);color:#fcd34d;}
+.badge-block{background:rgba(100,116,139,0.3);color:#94a3b8;}
+.input{width:100%;padding:9px 11px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;}
 .input:focus{outline:none;border-color:var(--blue);}
-.input:disabled{opacity:0.4;cursor:not-allowed;}
-
-/* 메시지 */
-.msg{padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:10px;}
+.input:disabled{opacity:0.4;}
+.msg{padding:9px 12px;border-radius:6px;font-size:12px;margin-bottom:8px;}
 .msg-success{background:rgba(16,185,129,0.15);border:1px solid var(--green);color:#86efac;}
 .msg-error{background:rgba(239,68,68,0.15);border:1px solid var(--red);color:#fca5a5;}
 .msg-warn{background:rgba(245,158,11,0.15);border:1px solid var(--yellow);color:#fcd34d;}
-
-/* 통계 */
-.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
 @media(min-width:600px){.stat-grid{grid-template-columns:repeat(4,1fr);}}
-.stat{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;}
-.stat-label{font-size:10px;color:var(--text3);margin-bottom:3px;}
-.stat-val{font-size:20px;font-weight:700;}
-.progress-bar{background:var(--border);border-radius:4px;height:8px;margin-bottom:6px;overflow:hidden;}
-.progress-fill{height:100%;background:linear-gradient(90deg,var(--green),#059669);transition:width 0.5s;border-radius:4px;}
-
-/* 업로드 그리드 */
-.upload-grid{display:grid;grid-template-columns:1fr;gap:12px;}
-@media(min-width:768px){.upload-grid{grid-template-columns:1fr 1fr;}}
-
-/* 검색/배정 */
-.search-layout{display:grid;grid-template-columns:1fr;gap:12px;}
-@media(min-width:900px){.search-layout{grid-template-columns:300px 1fr;}}
+.stat{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:9px;text-align:center;}
+.stat-label{font-size:10px;color:var(--text3);margin-bottom:2px;}
+.stat-val{font-size:19px;font-weight:700;}
+.progress-bar{background:var(--border);border-radius:4px;height:7px;overflow:hidden;margin-bottom:5px;}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--green),#059669);transition:width 0.4s;border-radius:4px;}
+/* 검색 */
 .search-wrap{position:relative;margin-bottom:10px;}
-.search-wrap .search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none;}
-.search-wrap .input{padding-left:32px;}
-.result-list{max-height:60vh;overflow-y:auto;}
-.result-item{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:all 0.15s;}
+.search-wrap .si{position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none;}
+.search-wrap .input{padding-left:30px;}
+.result-list{max-height:55vh;overflow-y:auto;}
+.result-item{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:9px 11px;margin-bottom:6px;cursor:pointer;transition:all 0.15s;}
 .result-item:hover{border-color:var(--border2);}
-.result-item:active{background:rgba(59,130,246,0.15);border-color:var(--blue);transform:scale(0.98);}
+.result-item:active{background:rgba(59,130,246,0.12);border-color:var(--blue);transform:scale(0.98);}
 .result-item.selected{border-color:var(--blue);background:rgba(59,130,246,0.08);}
-.ri-name{font-size:15px;font-weight:600;color:#f1f5f9;}
+.ri-name{font-size:14px;font-weight:600;color:#f1f5f9;}
 .ri-sub{font-size:11px;color:var(--text3);font-family:monospace;margin-top:1px;}
-.person-card{border-radius:8px;padding:16px;}
-.pc-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(51,65,85,0.5);font-size:14px;}
+/* 좌석 선택 그리드 */
+.seat-picker{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;}
+.seat-picker-title{font-size:11px;color:var(--text3);margin-bottom:8px;}
+.block-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;}
+.btab{padding:5px 10px;border:1px solid var(--border2);border-radius:5px;background:transparent;color:var(--text2);font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s;}
+.btab.active{background:var(--blue);border-color:var(--blue);color:white;}
+.row-picker{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;}
+.rpick{width:30px;height:28px;border:1px solid var(--border2);border-radius:4px;background:transparent;color:var(--text2);font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;}
+.rpick.active{background:var(--blue);border-color:var(--blue);color:white;}
+.rpick.disabled{opacity:0.3;cursor:not-allowed;}
+.seat-picker-grid{display:flex;flex-wrap:wrap;gap:4px;}
+.spick{width:30px;height:28px;border:1px solid var(--border2);border-radius:4px;background:transparent;color:var(--text2);font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;}
+.spick.selected{background:var(--green);border-color:var(--green);color:white;}
+.spick.taken{background:rgba(239,68,68,0.2);border-color:var(--red);color:#fca5a5;cursor:not-allowed;}
+.spick.vip{background:rgba(245,158,11,0.2);border-color:var(--yellow);color:#fcd34d;cursor:not-allowed;}
+.spick.blocked{background:rgba(239,68,68,0.2);border-color:var(--red);color:#fca5a5;cursor:not-allowed;}
+.selected-seats-list{margin-top:8px;font-size:11px;color:#93c5fd;min-height:18px;}
+/* 개인 카드 */
+.pc-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(51,65,85,0.5);font-size:13px;}
 .pc-row:last-of-type{border-bottom:none;}
 .pc-label{color:var(--text2);}
 .pc-value{color:#f1f5f9;font-weight:500;}
-
-/* 확인 모달 */
-.confirm-modal{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;}
-.confirm-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:400px;width:100%;}
-.confirm-title{font-size:16px;font-weight:700;margin-bottom:8px;color:#f1f5f9;}
-.confirm-body{font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.6;}
-.confirm-actions{display:flex;gap:8px;justify-content:flex-end;}
-
 /* 좌석배치도 */
-.floor-btn{padding:6px 14px;border:1px solid var(--border2);border-radius:6px;background:transparent;color:var(--text2);cursor:pointer;font-size:13px;transition:all 0.2s;}
+.floor-btn{padding:5px 12px;border:1px solid var(--border2);border-radius:5px;background:transparent;color:var(--text2);cursor:pointer;font-size:12px;transition:all 0.2s;}
 .floor-btn.active{background:var(--blue);border-color:var(--blue);color:white;}
-.seating-outer{overflow:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;background:var(--bg3);cursor:grab;max-height:72vh;padding-bottom:4px;}
-.seating-outer:active{cursor:grabbing;}
+.seating-outer{overflow:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;background:var(--bg3);max-height:72vh;}
 .seating-inner{padding:16px;width:max-content;min-width:100%;touch-action:pan-x pan-y;}
-.stage{background:linear-gradient(135deg,#1e3a5f,#1e4a7f);border:1px solid #2563eb;border-radius:6px;text-align:center;padding:8px;font-size:12px;font-weight:700;color:#93c5fd;margin-bottom:16px;letter-spacing:2px;min-width:600px;}
+.stage{background:linear-gradient(135deg,#1e3a5f,#1e4a7f);border:1px solid #2563eb;border-radius:6px;text-align:center;padding:7px;font-size:11px;font-weight:700;color:#93c5fd;margin-bottom:14px;min-width:600px;letter-spacing:2px;}
 .floor-layout{display:flex;gap:10px;justify-content:flex-start;align-items:flex-start;width:max-content;}
 .block-wrap{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
-.block-name{font-size:11px;font-weight:700;color:var(--text2);text-align:center;margin-bottom:6px;letter-spacing:1px;}
+.block-name{font-size:10px;font-weight:700;color:var(--text2);text-align:center;margin-bottom:5px;letter-spacing:1px;}
 .seat-rows{display:flex;flex-direction:column;gap:2px;}
-.seat-row{display:flex;gap:2px;align-items:center;}
-.seat-row.r-align{justify-content:flex-end;}
+.srow{display:flex;gap:2px;align-items:center;}
+.srow.r-align{justify-content:flex-end;}
 .row-lbl{width:20px;font-size:9px;color:var(--text3);text-align:right;flex-shrink:0;}
 .seat{width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;font-size:6px;font-weight:700;background:rgba(100,116,139,0.3);color:var(--text3);flex-shrink:0;transition:all 0.15s;}
 .seat.occupied{background:linear-gradient(135deg,var(--green),#059669);color:white;}
-.seat.highlight{background:linear-gradient(135deg,var(--blue),#1d4ed8);color:white;border:1px solid #60a5fa;box-shadow:0 0 8px rgba(59,130,246,0.7);transform:scale(1.35);z-index:1;position:relative;}
-.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;}
+.seat.highlight{background:linear-gradient(135deg,var(--blue),#1d4ed8);color:white;border:1px solid #60a5fa;box-shadow:0 0 6px rgba(59,130,246,0.7);transform:scale(1.3);z-index:1;position:relative;}
+.seat.vip{background:linear-gradient(135deg,var(--yellow),#d97706);color:white;}
+.seat.blocked{background:rgba(239,68,68,0.25);border:1px solid var(--red);color:#fca5a5;}
+.seat.clickable{cursor:pointer;}
+.seat.clickable:active{transform:scale(0.9);}
+/* 범례 */
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
 .legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);}
-.legend-box{width:14px;height:14px;border-radius:2px;}
-
-/* Firebase 설정 섹션 */
-.fb-config-card{background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.3);border-radius:10px;padding:16px;margin-bottom:12px;}
-.fb-config-title{font-size:13px;font-weight:600;color:#93c5fd;margin-bottom:10px;}
-.fb-step{display:flex;gap:10px;margin-bottom:8px;font-size:12px;color:var(--text2);line-height:1.6;}
-.fb-step-num{background:var(--blue);color:white;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;margin-top:1px;}
-code{background:var(--bg3);border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-family:monospace;font-size:11px;color:#93c5fd;}
-
-::-webkit-scrollbar{width:5px;height:5px;}
-::-webkit-scrollbar-track{background:rgba(51,65,85,0.3);}
+.legend-box{width:13px;height:13px;border-radius:2px;flex-shrink:0;}
+/* 모달 공통 */
+.modal-wrap{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;}
+.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;width:100%;max-width:380px;max-height:90vh;overflow-y:auto;}
+.modal-title{font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:12px;}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;}
+/* 로딩 */
+#loadingOverlay{position:fixed;inset:0;background:rgba(15,23,42,0.85);z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;}
+.spinner{width:44px;height:44px;border:4px solid #334155;border-top-color:var(--blue);border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+/* 업로드 그리드 */
+.upload-grid{display:grid;grid-template-columns:1fr;gap:10px;}
+@media(min-width:768px){.upload-grid{grid-template-columns:1fr 1fr;}}
+/* 2단 레이아웃 */
+.two-col{display:grid;grid-template-columns:1fr;gap:10px;}
+@media(min-width:900px){.two-col{grid-template-columns:300px 1fr;}}
+::-webkit-scrollbar{width:4px;height:4px;}
 ::-webkit-scrollbar-thumb{background:#475569;border-radius:3px;}
 </style>
 </head>
 <body>
 
-<div class="fb-banner fb-warn" id="fbBanner">🔄 Firebase 연결 중...</div>
-<div id="loadingOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.85);z-index:9999;align-items:center;justify-content:center;gap:16px;flex-direction:column;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
-  <div style="width:48px;height:48px;border:4px solid #334155;border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
-  <div style="color:#e2e8f0;font-size:15px;font-weight:600;" id="loadingText">데이터 동기화 중...</div>
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div style="color:#e2e8f0;font-size:14px;font-weight:600;" id="loadingText">데이터 동기화 중...</div>
   <div style="color:#64748b;font-size:12px;">잠시만 기다려 주세요</div>
 </div>
-<style>
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
+
+<div class="fb-banner fb-warn" id="fbBanner">🔄 Firebase 연결 중...</div>
 
 <div class="header">
   <div class="header-inner">
-    <div>
-      <h1>🎵 KBS 국악관현악단 티켓 배부 관리</h1>
-      <p>현장 방청신청자 안내 시스템</p>
-    </div>
-    <div id="headerStats" style="font-size:12px;color:var(--text3);"></div>
+    <div><h1>🎵 KBS 국악관현악단 티켓 배부 관리</h1><p>현장 방청신청자 안내 시스템</p></div>
+    <div id="headerStats" style="font-size:11px;color:var(--text3);"></div>
   </div>
 </div>
 
 <div class="tabs">
-  <div class="tab" id="tab-upload" onclick="switchTab('upload')">
-    <span class="tab-icon">📁</span>데이터 업로드
-  </div>
-  <div class="tab active" id="tab-assign" onclick="switchTab('assign')">
-    <span class="tab-icon">🔍</span>좌석 배정
-  </div>
-  <div class="tab" id="tab-status" onclick="switchTab('status')">
-    <span class="tab-icon">🎭</span>배포 현황
-  </div>
+  <div class="tab active" id="tab-assign" onclick="switchTab('assign')"><span class="tab-icon">🔍</span>좌석 배정</div>
+  <div class="tab" id="tab-status" onclick="switchTab('status')"><span class="tab-icon">🎭</span>배포 현황</div>
+  <div class="tab" id="tab-upload" onclick="switchTab('upload')"><span class="tab-icon">📁</span>데이터 업로드</div>
 </div>
 
-<!-- ===== 탭1: 데이터 업로드 ===== -->
-<div id="upload" class="tab-content">
-  <div id="uploadMsg"></div>
-
-  <!-- Firebase 설정 안내 -->
-  <div class="fb-config-card" id="fbConfigGuide" style="display:none;">
-    <div class="fb-config-title">🔥 Firebase 설정 방법</div>
-    <div class="fb-step"><div class="fb-step-num">1</div><div><a href="https://console.firebase.google.com" target="_blank" style="color:var(--blue);">console.firebase.google.com</a> → "프로젝트 만들기" → 이름 입력 → 생성</div></div>
-    <div class="fb-step"><div class="fb-step-num">2</div><div>좌측 메뉴 <strong>빌드 → Realtime Database</strong> → "데이터베이스 만들기" → 위치: <code>asia-southeast1</code> → <strong>테스트 모드</strong> 선택</div></div>
-    <div class="fb-step"><div class="fb-step-num">3</div><div>좌측 상단 <strong>⚙️ 프로젝트 설정</strong> → 내 앱 → 웹 앱 <code>&lt;/&gt;</code> 추가 → 닉네임 입력</div></div>
-    <div class="fb-step"><div class="fb-step-num">4</div><div>표시되는 <code>firebaseConfig</code> 값 복사 → 이 HTML 파일 상단 <code>FIREBASE_CONFIG</code> 부분에 붙여넣기 후 저장</div></div>
-    <div class="fb-step"><div class="fb-step-num">5</div><div>수정된 HTML 파일을 Netlify에 다시 업로드 → 완료 🎉</div></div>
-  </div>
-
-  <div class="upload-grid">
-    <div class="card">
-      <div class="card-title">👥 당첨자 명단</div>
-      <div class="upload-area" id="listBox">
-        <div class="upload-icon">📋</div>
-        <div class="upload-label"><strong style="color:var(--blue)">클릭</strong>하거나 파일 드래그</div>
-        <div class="upload-hint">당첨자_명단.xlsx</div>
-        <input type="file" id="listFile" accept=".xlsx">
-      </div>
-      <div id="listLoaded" style="display:none;" class="loaded-badge"></div>
-      <div id="listReplace" class="replace-warning" style="display:none;">
-        ⚠️ 기존 당첨자 데이터가 있습니다. 새 파일로 교체하면 배부 기록이 초기화됩니다.
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-title">🗺️ 좌석배치도</div>
-      <div class="upload-area" id="seatBox">
-        <div class="upload-icon">📐</div>
-        <div class="upload-label"><strong style="color:var(--blue)">클릭</strong>하거나 파일 드래그</div>
-        <div class="upload-hint">좌석배치도_KBS홀.xlsx</div>
-        <input type="file" id="seatFile" accept=".xlsx">
-      </div>
-      <div id="seatLoaded" style="display:none;" class="loaded-badge"></div>
-      <div id="seatReplace" class="replace-warning" style="display:none;">
-        ⚠️ 기존 좌석배치도가 있습니다. 새 파일로 교체하면 좌석 구조가 초기화됩니다.
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">📊 현재 데이터 현황</div>
-    <div class="stat-grid">
-      <div class="stat"><div class="stat-label">총 관객</div><div class="stat-val" style="color:var(--blue)" id="st-total">0</div></div>
-      <div class="stat"><div class="stat-label">배부 완료</div><div class="stat-val" style="color:var(--green)" id="st-done">0</div></div>
-      <div class="stat"><div class="stat-label">배부 대기</div><div class="stat-val" style="color:var(--yellow)" id="st-pending">0</div></div>
-      <div class="stat"><div class="stat-label">총 좌석</div><div class="stat-val" style="color:var(--purple)" id="st-seats">0</div></div>
-    </div>
-    <div class="progress-bar"><div class="progress-fill" id="st-bar" style="width:0%"></div></div>
-    <div style="font-size:11px;color:var(--text3);text-align:right;" id="st-pct">0% 배부 완료</div>
-  </div>
-</div>
-
-<!-- ===== 탭2: 좌석 배정 ===== -->
+<!-- ===== 탭1: 좌석 배정 ===== -->
 <div id="assign" class="tab-content active">
   <div id="assignMsg"></div>
-  <div class="search-layout">
+  <div class="two-col">
     <div class="card" style="margin-bottom:0;">
       <div class="card-title">🔍 관객 검색</div>
       <div class="search-wrap">
-        <span class="search-icon">🔎</span>
+        <span class="si">🔎</span>
         <input class="input" type="text" id="searchInput" placeholder="성명 또는 전화 뒷자리..." disabled>
       </div>
       <div id="searchResults" class="result-list">
-        <div style="text-align:center;padding:30px;color:var(--text3);font-size:13px;">데이터를 업로드해 주세요</div>
+        <div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">데이터를 업로드해 주세요</div>
       </div>
     </div>
     <div class="card" style="margin-bottom:0;">
-      <div id="personEmpty" style="display:flex;align-items:center;justify-content:center;height:120px;color:var(--text3);font-size:14px;">👆 위에서 관객을 선택하세요</div>
+      <div id="personEmpty" style="display:flex;align-items:center;justify-content:center;height:120px;color:var(--text3);font-size:13px;">👆 위에서 관객을 선택하세요</div>
       <div id="personCard" style="display:none;">
-        <div style="text-align:center;font-size:12px;color:var(--text3);margin-bottom:8px;padding:6px;background:rgba(59,130,246,0.08);border-radius:6px;">📋 선택된 관객 정보</div>
-        <div class="person-card">
+        <div style="background:rgba(59,130,246,0.07);border-radius:8px;padding:12px;margin-bottom:10px;">
           <div class="pc-row"><span class="pc-label">📛 성명</span><span class="pc-value" id="pc-name">—</span></div>
           <div class="pc-row"><span class="pc-label">📱 연락처</span><span class="pc-value" id="pc-phone">—</span></div>
-          <div class="pc-row"><span class="pc-label">🎫 동반인원</span><span class="pc-value" id="pc-count">—</span></div>
-          <div class="pc-row"><span class="pc-label">🪑 배정 좌석</span><span class="pc-value" id="pc-seat" style="color:#93c5fd;">미배정</span></div>
+          <div class="pc-row"><span class="pc-label">🎫 인원</span><span class="pc-value" id="pc-count">—</span></div>
+          <div class="pc-row"><span class="pc-label">🪑 배정 좌석</span><span class="pc-value" id="pc-seat" style="color:#64748b;">미배정</span></div>
           <div class="pc-row"><span class="pc-label">📊 상태</span><span id="pc-status" class="badge badge-pending">배부대기</span></div>
         </div>
 
-        <!-- 좌석 배정 섹션 -->
-        <div id="seatAssignSection" style="margin-top:12px;background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:12px;">
-          <div style="font-size:12px;font-weight:600;color:#93c5fd;margin-bottom:10px;">🪑 좌석 배정</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
-            <button class="seat-assign-opt active" id="opt-auto" onclick="setSeatOpt('auto')"
-              style="padding:8px;border:1px solid #3b82f6;border-radius:6px;background:rgba(59,130,246,0.2);color:#93c5fd;font-size:12px;font-weight:600;cursor:pointer;">
+        <!-- 좌석 배정 섹션 (배부 전에만 표시) -->
+        <div id="seatAssignSection">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+            <button id="opt-auto" onclick="setSeatOpt('auto')"
+              style="padding:8px;border:1px solid var(--blue);border-radius:6px;background:rgba(59,130,246,0.2);color:#93c5fd;font-size:12px;font-weight:600;cursor:pointer;">
               🎲 임의 배정
             </button>
-            <button class="seat-assign-opt" id="opt-manual" onclick="setSeatOpt('manual')"
-              style="padding:8px;border:1px solid #475569;border-radius:6px;background:transparent;color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer;">
+            <button id="opt-manual" onclick="setSeatOpt('manual')"
+              style="padding:8px;border:1px solid var(--border2);border-radius:6px;background:transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;">
               ✏️ 지정 배정
             </button>
           </div>
-          <div id="manualSeatInput" style="display:none;margin-bottom:10px;">
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
-              <div>
-                <div style="font-size:10px;color:#64748b;margin-bottom:4px;">구역</div>
-                <select id="seat-block" class="input" style="font-size:13px;padding:8px;">
-                  <option value="">선택</option>
-                  <option>A블록</option><option>B블록</option><option>C블록</option>
-                  <option>D블록</option><option>E블록</option>
-                </select>
+          <!-- 지정 배정: 좌석 선택기 -->
+          <div id="manualSeatPicker" style="display:none;">
+            <div class="seat-picker">
+              <div style="display:flex;gap:6px;margin-bottom:10px;">
+                <button class="floor-btn active" id="assign-floor1-btn" onclick="setAssignFloor(1)">1층</button>
+                <button class="floor-btn" id="assign-floor2-btn" onclick="setAssignFloor(2)">2층</button>
               </div>
-              <div>
-                <div style="font-size:10px;color:#64748b;margin-bottom:4px;">열</div>
-                <input class="input" id="seat-row" type="number" min="1" max="25" placeholder="1~25" style="font-size:13px;padding:8px;">
-              </div>
-              <div>
-                <div style="font-size:10px;color:#64748b;margin-bottom:4px;">좌석</div>
-                <input class="input" id="seat-num" type="number" min="1" max="12" placeholder="번호" style="font-size:13px;padding:8px;">
-              </div>
+              <div class="seat-picker-title">구역 선택</div>
+              <div class="block-tabs" id="blockTabs"></div>
+              <div class="seat-picker-title" style="margin-top:6px;">열 선택</div>
+              <div class="row-picker" id="rowPicker"></div>
+              <div class="seat-picker-title" style="margin-top:6px;">좌석 선택 (여러 개 가능)</div>
+              <div class="seat-picker-grid" id="seatPickerGrid"></div>
+              <div class="selected-seats-list" id="selectedSeatsList">선택된 좌석: 없음</div>
             </div>
           </div>
         </div>
 
-        <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:6px;">
           <button class="btn btn-success" id="distributeBtn">✅ 배부 완료</button>
           <button class="btn btn-danger" id="undoBtn" style="display:none;">↩ 배부 취소</button>
         </div>
-        <div id="modifySection" style="display:none;margin-top:12px;">
-          <hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">
-          <div class="card-title" style="font-size:13px;">✏️ 정보 수정</div>
-          <div style="display:grid;gap:8px;">
+        <button class="btn btn-ghost" onclick="toggleEdit()" style="width:100%;margin-top:6px;font-size:12px;" id="editToggleBtn">✏️ 정보 수정</button>
+        <div id="modifySection" style="display:none;margin-top:10px;">
+          <div style="display:grid;gap:7px;">
             <input class="input" id="edit-name" placeholder="성명" style="font-size:13px;">
             <input class="input" id="edit-phone" placeholder="전화 뒷4자리" style="font-size:13px;">
-            <input class="input" id="edit-count" placeholder="신청인원" type="number" style="font-size:13px;">
-            <button class="btn btn-primary" onclick="saveEdit()" style="width:100%;">저장 (엑셀 원본보다 우선 적용)</button>
+            <input class="input" id="edit-count" placeholder="신청인원(본인 포함)" type="number" style="font-size:13px;">
+            <button class="btn btn-primary" onclick="saveEdit()" style="width:100%;font-size:12px;">저장 (엑셀 원본보다 우선)</button>
           </div>
         </div>
-        <button class="btn btn-ghost" onclick="toggleEdit()" style="width:100%;margin-top:8px;font-size:12px;" id="editToggleBtn">✏️ 정보 수정</button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ===== 탭3: 배포 현황 ===== -->
+<!-- ===== 탭2: 배포 현황 ===== -->
 <div id="status" class="tab-content">
-  <div class="card" style="margin-bottom:12px;">
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between;">
-      <div class="stat-grid" style="flex:1;min-width:260px;margin-bottom:0;">
+  <div class="card">
+    <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:8px;">
+      <div class="stat-grid" style="flex:1;min-width:240px;margin-bottom:0;">
         <div class="stat"><div class="stat-label">총 관객</div><div class="stat-val" style="color:var(--blue)" id="st2-total">0</div></div>
         <div class="stat"><div class="stat-label">배부 완료</div><div class="stat-val" style="color:var(--green)" id="st2-done">0</div></div>
         <div class="stat"><div class="stat-label">배부 대기</div><div class="stat-val" style="color:var(--yellow)" id="st2-pending">0</div></div>
         <div class="stat"><div class="stat-label">완료율</div><div class="stat-val" style="color:var(--purple)" id="st2-pct">0%</div></div>
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0;">
+      <div style="display:flex;gap:5px;flex-shrink:0;">
         <button class="floor-btn active" id="floor1-btn" onclick="setFloor(1)">1층</button>
         <button class="floor-btn" id="floor2-btn" onclick="setFloor(2)">2층</button>
       </div>
     </div>
-    <div class="progress-bar" style="margin-top:10px;"><div class="progress-fill" id="st2-bar" style="width:0%"></div></div>
-
+    <div class="progress-bar"><div class="progress-fill" id="st2-bar" style="width:0%"></div></div>
   </div>
-
-  <div class="card" id="noSeatMsg" style="text-align:center;padding:40px;color:var(--text3);">
-    좌석배치도를 업로드하면 시각화가 표시됩니다
-  </div>
-  <div id="seatChartCard" class="card" style="display:none;padding:12px;">
-    <div class="legend" style="margin-bottom:10px;">
-      <div class="legend-item"><div class="legend-box" style="background:rgba(100,116,139,0.3);"></div>배부 대기</div>
-      <div class="legend-item"><div class="legend-box" style="background:linear-gradient(135deg,var(--green),#059669);"></div>배부 완료</div>
-      <div class="legend-item"><div class="legend-box" style="background:linear-gradient(135deg,var(--blue),#1d4ed8);border:1px solid #60a5fa;"></div>현재 선택</div>
+  <div class="card" id="noSeatMsg" style="text-align:center;padding:36px;color:var(--text3);">좌석배치도를 업로드하면 시각화가 표시됩니다</div>
+  <div id="seatChartCard" class="card" style="display:none;padding:10px;">
+    <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:8px;">
+      <div class="legend">
+        <div class="legend-item"><div class="legend-box" style="background:rgba(100,116,139,0.3);"></div>대기</div>
+        <div class="legend-item"><div class="legend-box" style="background:linear-gradient(135deg,var(--green),#059669);"></div>완료</div>
+        <div class="legend-item"><div class="legend-box" style="background:linear-gradient(135deg,var(--yellow),#d97706);"></div>VIP</div>
+        <div class="legend-item"><div class="legend-box" style="background:rgba(239,68,68,0.25);border:1px solid var(--red);"></div>사석</div>
+        <div class="legend-item"><div class="legend-box" style="background:linear-gradient(135deg,var(--blue),#1d4ed8);border:1px solid #60a5fa;"></div>선택</div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);">💡 좌석 터치 → 정보 확인/VIP·사석 지정</div>
     </div>
     <div class="seating-outer" id="seatingOuter">
       <div class="seating-inner" id="seatingInner"></div>
@@ -513,43 +363,79 @@ code{background:var(--bg3);border:1px solid var(--border);padding:1px 5px;border
   </div>
 </div>
 
-<!-- 좌석 클릭 정보 팝업 -->
-<div id="seatInfoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1001;align-items:center;justify-content:center;padding:20px;">
-  <div style="background:#1e293b;border:2px solid var(--green);border-radius:14px;padding:24px;max-width:320px;width:100%;">
-    <div style="font-size:13px;font-weight:700;color:#86efac;margin-bottom:14px;display:flex;align-items:center;gap:6px;">
-      ✅ 배부 완료된 좌석
+<!-- ===== 탭3: 데이터 업로드 ===== -->
+<div id="upload" class="tab-content">
+  <div id="uploadMsg"></div>
+  <div class="upload-grid">
+    <div class="card">
+      <div class="card-title">👥 당첨자 명단</div>
+      <div class="upload-area" id="listBox">
+        <div style="font-size:26px;margin-bottom:6px;">📋</div>
+        <div style="font-size:12px;color:var(--text2);"><strong style="color:var(--blue)">클릭</strong>하거나 드래그</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:3px;">당첨자_명단.xlsx</div>
+        <input type="file" id="listFile" accept=".xlsx">
+      </div>
+      <div id="listLoaded" style="display:none;" class="loaded-badge"></div>
+      <div id="listReplace" class="replace-warn" style="display:none;">⚠️ 새 파일 업로드 시 배부 기록 초기화</div>
     </div>
-    <div style="background:#0f172a;border-radius:8px;padding:14px;margin-bottom:16px;">
-      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #334155;font-size:14px;">
-        <span style="color:#94a3b8;">📛 성명</span>
-        <span style="color:#f1f5f9;font-weight:700;" id="si-name">—</span>
+    <div class="card">
+      <div class="card-title">🗺️ 좌석배치도</div>
+      <div class="upload-area" id="seatBox">
+        <div style="font-size:26px;margin-bottom:6px;">📐</div>
+        <div style="font-size:12px;color:var(--text2);"><strong style="color:var(--blue)">클릭</strong>하거나 드래그</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:3px;">좌석배치도_KBS홀.xlsx</div>
+        <input type="file" id="seatFile" accept=".xlsx">
       </div>
-      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #334155;font-size:14px;">
-        <span style="color:#94a3b8;">📱 연락처</span>
-        <span style="color:#f1f5f9;font-weight:600;" id="si-phone">—</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #334155;font-size:14px;">
-        <span style="color:#94a3b8;">🎫 인원</span>
-        <span style="color:#f1f5f9;font-weight:600;" id="si-count">—</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:14px;">
-        <span style="color:#94a3b8;">🪑 배정 좌석</span>
-        <span style="color:#86efac;font-weight:600;" id="si-seat">—</span>
-      </div>
+      <div id="seatLoaded" style="display:none;" class="loaded-badge"></div>
+      <div id="seatReplace" class="replace-warn" style="display:none;">⚠️ 새 파일 업로드 시 좌석 구조 초기화</div>
     </div>
-    <button onclick="document.getElementById('seatInfoModal').style.display='none'"
-      style="width:100%;padding:11px;background:linear-gradient(135deg,#10b981,#059669);border:none;border-radius:8px;color:white;font-size:14px;font-weight:700;cursor:pointer;">
-      닫기
-    </button>
+  </div>
+  <div class="card">
+    <div class="card-title">📊 현황</div>
+    <div class="stat-grid">
+      <div class="stat"><div class="stat-label">총 관객</div><div class="stat-val" style="color:var(--blue)" id="st-total">0</div></div>
+      <div class="stat"><div class="stat-label">배부 완료</div><div class="stat-val" style="color:var(--green)" id="st-done">0</div></div>
+      <div class="stat"><div class="stat-label">배부 대기</div><div class="stat-val" style="color:var(--yellow)" id="st-pending">0</div></div>
+      <div class="stat"><div class="stat-label">총 좌석</div><div class="stat-val" style="color:var(--purple)" id="st-seats">0</div></div>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="st-bar" style="width:0%"></div></div>
+    <div style="font-size:10px;color:var(--text3);text-align:right;" id="st-pct">0% 배부 완료</div>
+  </div>
+</div>
+
+<!-- 좌석 정보/VIP·사석 지정 모달 -->
+<div class="modal-wrap" id="seatModal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-title" id="seatModalTitle">좌석 정보</div>
+    <div id="seatModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeSeatModal()">닫기</button>
+      <button class="btn btn-orange" id="seatModalVipBtn" onclick="setSeatSpecial('vip')" style="display:none;">⭐ VIP 지정</button>
+      <button class="btn btn-ghost" id="seatModalBlockBtn" onclick="setSeatSpecial('blocked')" style="display:none;">🚫 사석 지정</button>
+      <button class="btn btn-danger" id="seatModalClearBtn" onclick="clearSeatSpecial()" style="display:none;">초기화</button>
+    </div>
+  </div>
+</div>
+
+<!-- VIP 이름 입력 모달 -->
+<div class="modal-wrap" id="vipNameModal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-title">⭐ VIP 지정</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;" id="vipSeatLabel"></div>
+    <input class="input" id="vipNameInput" placeholder="VIP 성함 입력" style="margin-bottom:8px;">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeVipModal()">취소</button>
+      <button class="btn btn-orange" onclick="confirmVip()">저장</button>
+    </div>
   </div>
 </div>
 
 <!-- 확인 모달 -->
-<div class="confirm-modal" id="confirmModal" style="display:none;">
-  <div class="confirm-box">
-    <div class="confirm-title" id="confirmTitle">확인</div>
-    <div class="confirm-body" id="confirmBody"></div>
-    <div class="confirm-actions">
+<div class="modal-wrap" id="confirmModal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-title" id="confirmTitle">확인</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;white-space:pre-line;" id="confirmBody"></div>
+    <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeConfirm()">취소</button>
       <button class="btn btn-primary" id="confirmOk">확인</button>
     </div>
@@ -557,656 +443,821 @@ code{background:var(--bg3);border:1px solid var(--border);padding:1px 5px;border
 </div>
 
 <script>
-// ========== 로딩 인디케이터 ==========
-function showLoading(msg) {
-  const el = document.getElementById('loadingOverlay');
-  if (el) {
-    el.style.display = 'flex';
-    el.style.flexDirection = 'column';
-    el.style.alignItems = 'center';
-    el.style.justifyContent = 'center';
-    el.style.gap = '16px';
-    document.getElementById('loadingText').textContent = msg || '데이터 동기화 중...';
-  }
-}
-function hideLoading() {
-  const el = document.getElementById('loadingOverlay');
-  if (el) el.style.display = 'none';
-}
-
-// ========== 전역 상태 ==========
+// ===== 전역 상태 =====
 window.__S = {
   audience: [],
   seatLayout: null,
   distributed: {},
   edits: {},
-  seatAssignments: {},
+  seatAssignments: {},  // key -> [{block,row,num}] 배열
+  specialSeats: {},     // "block|row|num" -> {type:'vip'|'blocked', name?:''}
+  extraPersons: {},     // VIP/사석에서 추가된 가상 명단 항목
   seatOpt: 'auto',
+  pickerBlock: null,
+  pickerRow: null,
+  pickerSeats: [],      // 선택된 좌석 배열 [{block,row,num}]
+  currentSeatKey: null, // 모달에서 현재 처리 중인 좌석
   selectedKey: null,
   currentFloor: 1
 };
 var S = window.__S;
 
-// ========== localStorage 폴백 ==========
+// ===== 로컬 저장/로드 =====
 function localSave() {
   try {
-    localStorage.setItem('kbs_v2_audience', JSON.stringify(S.audience));
-    localStorage.setItem('kbs_v2_seatLayout', JSON.stringify(S.seatLayout));
-    localStorage.setItem('kbs_v2_distributed', JSON.stringify(S.distributed));
-    localStorage.setItem('kbs_v2_edits', JSON.stringify(S.edits));
-    localStorage.setItem('kbs_v2_seatAssign', JSON.stringify(S.seatAssignments));
+    ['audience','seatLayout','distributed','edits','seatAssignments','specialSeats','extraPersons']
+      .forEach(k => localStorage.setItem('kbs3_'+k, JSON.stringify(S[k])));
   } catch(e) {}
 }
-
 function localLoad() {
   try {
-    var a = localStorage.getItem('kbs_v2_audience');
-    var sl = localStorage.getItem('kbs_v2_seatLayout');
-    var d = localStorage.getItem('kbs_v2_distributed');
-    var ed = localStorage.getItem('kbs_v2_edits');
-    if (a) S.audience = JSON.parse(a);
-    if (sl) S.seatLayout = JSON.parse(sl);
-    if (d) S.distributed = JSON.parse(d);
-    if (ed) S.edits = JSON.parse(ed);
-    const sa = localStorage.getItem('kbs_v2_seatAssign');
-    if (sa) S.seatAssignments = JSON.parse(sa);
+    ['audience','seatLayout','distributed','edits','seatAssignments','specialSeats','extraPersons']
+      .forEach(k => { const v=localStorage.getItem('kbs3_'+k); if(v) S[k]=JSON.parse(v); });
+    // seatAssignments 이전 버전 호환
+    if (S.seatAssignments) {
+      Object.keys(S.seatAssignments).forEach(k => {
+        const v = S.seatAssignments[k];
+        if (v && !Array.isArray(v) && v.type) S.seatAssignments[k] = [v];
+      });
+    }
   } catch(e) {}
 }
-
-// Firebase 또는 localStorage에 저장
 function saveData(path, data) {
-  if (window.__fbMode === 'firebase' && window.__fbSave) {
-    window.__fbSave(path, data);
-  }
-  localSave(); // 항상 로컬에도 저장 (오프라인 폴백)
+  if (window.__fbReady && window.__fbSave) window.__fbSave(path, data);
+  localSave();
 }
 
-// ========== XLSX 파서 ==========
+// ===== 로딩 =====
+function showLoading(msg) {
+  const el = document.getElementById('loadingOverlay');
+  if (el) { el.style.display='flex'; document.getElementById('loadingText').textContent=msg||'동기화 중...'; }
+}
+function hideLoading() {
+  const el = document.getElementById('loadingOverlay');
+  if (el) el.style.display='none';
+}
+
+// ===== XLSX 파서 =====
 async function parseXLSX(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = async (e) => {
+    reader.onload = async e => {
       try {
         const zip = await JSZip.loadAsync(e.target.result);
-        const ssFile = zip.file('xl/sharedStrings.xml');
         const strings = [];
+        const ssFile = zip.file('xl/sharedStrings.xml');
         if (ssFile) {
-          const ssXml = await ssFile.async('string');
-          const siReg = /<si>([\s\S]*?)<\/si>/g;
-          let m;
-          while ((m = siReg.exec(ssXml)) !== null) {
-            const parts = []; const tr = /<t[^>]*>([\s\S]*?)<\/t>/g; let tm;
-            while ((tm = tr.exec(m[1])) !== null) parts.push(tm[1]);
+          const xml = await ssFile.async('string');
+          const sr = /<si>([\s\S]*?)<\/si>/g; let m;
+          while((m=sr.exec(xml))!==null){
+            const parts=[]; const tr=/<t[^>]*>([\s\S]*?)<\/t>/g; let tm;
+            while((tm=tr.exec(m[1]))!==null) parts.push(tm[1]);
             strings.push(parts.join(''));
           }
         }
         const sheetFile = zip.file('xl/worksheets/sheet1.xml');
-        if (!sheetFile) { resolve({strings, rows:[]}); return; }
+        if (!sheetFile) { resolve({rows:[]}); return; }
         const sheetXml = await sheetFile.async('string');
         const rows = [];
-        const rowReg = /<row[^>]+r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
-        let rm;
-        while ((rm = rowReg.exec(sheetXml)) !== null) {
-          const rn = parseInt(rm[1]); const cells = {};
-          const cr = /<c r="([A-Z]+)\d+"([^>]*)>(?:<f[^>]*>[\s\S]*?<\/f>)?(?:<v>([\s\S]*?)<\/v>)?<\/c>/g;
-          let cm;
-          while ((cm = cr.exec(rm[2])) !== null) {
-            const col = cm[1], attrs = cm[2], v = cm[3];
-            if (!v && v !== '0') continue;
-            const t = attrs.match(/t="([^"]*)"/);
-            if (t && t[1]==='s') cells[col] = strings[parseInt(v)];
-            else { const n=parseFloat(v); cells[col] = (!isNaN(n)&&n===Math.floor(n))?Math.floor(n):(!isNaN(n)?n:v); }
+        const rr=/<row[^>]+r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g; let rm;
+        while((rm=rr.exec(sheetXml))!==null){
+          const cells={};
+          const cr=/<c r="([A-Z]+)\d+"([^>]*)>(?:<f[^>]*>[\s\S]*?<\/f>)?(?:<v>([\s\S]*?)<\/v>)?<\/c>/g; let cm;
+          while((cm=cr.exec(rm[2]))!==null){
+            const col=cm[1],attrs=cm[2],v=cm[3];
+            if(!v&&v!=='0') continue;
+            const t=attrs.match(/t="([^"]*)"/);
+            if(t&&t[1]==='s') cells[col]=strings[parseInt(v)];
+            else { const n=parseFloat(v); cells[col]=(!isNaN(n)&&n===Math.floor(n))?Math.floor(n):(!isNaN(n)?n:v); }
           }
-          if (Object.keys(cells).length) rows.push({rowNum:rn, cells});
+          if(Object.keys(cells).length) rows.push({rowNum:parseInt(rm[1]),cells});
         }
-        resolve({strings, rows});
+        resolve({rows});
       } catch(err) { reject(err); }
     };
     reader.readAsArrayBuffer(file);
   });
 }
 
-function cn(col) { let n=0; for(let i=0;i<col.length;i++) n=n*26+col.charCodeAt(i)-64; return n; }
+function normalizeSeatLayout(val) {
+  const normalized = {};
+  ['floor1','floor2'].forEach(fl => {
+    normalized[fl] = {};
+    if (!val[fl]) return;
+    Object.keys(val[fl]).forEach(bname => {
+      const blk = val[fl][bname];
+      if (!blk) return;
+      const newRows = {};
+      Object.keys(blk.rows||{}).forEach(k => { newRows[parseInt(k)] = blk.rows[k]; });
+      normalized[fl][bname] = {...blk, rows: newRows};
+    });
+  });
+  return normalized;
+}
 
-// ========== 파일 업로드 ==========
+// ===== 파일 업로드 =====
 function setupUpload(boxId, inputId, cb) {
-  const box = document.getElementById(boxId);
-  const inp = document.getElementById(inputId);
-  box.addEventListener('click', () => inp.click());
-  box.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('drag'); });
-  box.addEventListener('dragleave', () => box.classList.remove('drag'));
-  box.addEventListener('drop', e => { e.preventDefault(); box.classList.remove('drag'); if(e.dataTransfer.files[0]) cb(e.dataTransfer.files[0]); });
-  inp.addEventListener('change', e => { if(e.target.files[0]) cb(e.target.files[0]); });
+  const box=document.getElementById(boxId), inp=document.getElementById(inputId);
+  box.addEventListener('click',()=>inp.click());
+  box.addEventListener('dragover',e=>{e.preventDefault();box.style.borderColor='var(--blue)';});
+  box.addEventListener('dragleave',()=>{box.style.borderColor='';});
+  box.addEventListener('drop',e=>{e.preventDefault();box.style.borderColor='';if(e.dataTransfer.files[0])cb(e.dataTransfer.files[0]);});
+  inp.addEventListener('change',e=>{if(e.target.files[0])cb(e.target.files[0]);});
 }
 
-// 당첨자 명단
-setupUpload('listBox', 'listFile', async (file) => {
-  const msg = document.getElementById('uploadMsg');
-  msg.innerHTML = '<div class="msg msg-warn">⏳ 파일 읽는 중...</div>';
+setupUpload('listBox','listFile', async file => {
+  const msg=document.getElementById('uploadMsg');
+  msg.innerHTML='<div class="msg msg-warn">⏳ 읽는 중...</div>';
   try {
-    const r = await parseXLSX(file);
-    if (r.rows.length < 2) { msg.innerHTML = '<div class="msg msg-error">데이터가 없습니다</div>'; return; }
-    const header = r.rows[0].cells;
-    const colMap = {};
-    Object.keys(header).forEach(col => { if(typeof header[col]==='string') colMap[header[col]] = col; });
-    const nameCol   = colMap['이름'] || colMap['성명'];
-    const phoneCol  = colMap['핸드폰(뒷4자리)'] || colMap['전화'] || colMap['핸드폰'];
-    const countCol  = colMap['신청인원'] || colMap['인원'];
-    if (!nameCol) { msg.innerHTML = '<div class="msg msg-error">이름 컬럼을 찾을 수 없습니다. 컬럼: '+JSON.stringify(Object.keys(colMap))+'</div>'; return; }
-
-    const newData = [];
-    for (let i=1; i<r.rows.length; i++) {
-      const c = r.rows[i].cells;
-      const name = c[nameCol]; if (!name) continue;
-      const rawPhone = phoneCol ? String(c[phoneCol]||'') : '';
-      const phone = rawPhone.replace(/\D/g,'').slice(-4).padStart(4,'0');
-      const count = countCol ? (parseInt(c[countCol])||1) : 1;
-      newData.push({seq:i, name, phone, count, key:name+'__'+phone});
+    const {rows} = await parseXLSX(file);
+    if(rows.length<2){msg.innerHTML='<div class="msg msg-error">데이터 없음</div>';return;}
+    const header=rows[0].cells, colMap={};
+    Object.keys(header).forEach(col=>{if(typeof header[col]==='string')colMap[header[col]]=col;});
+    const nameCol=colMap['이름']||colMap['성명'];
+    const phoneCol=colMap['핸드폰(뒷4자리)']||colMap['전화']||colMap['핸드폰'];
+    const countCol=colMap['신청인원']||colMap['인원'];
+    if(!nameCol){msg.innerHTML='<div class="msg msg-error">이름 컬럼 없음: '+JSON.stringify(Object.keys(colMap))+'</div>';return;}
+    const newData=[];
+    for(let i=1;i<rows.length;i++){
+      const c=rows[i].cells, name=c[nameCol]; if(!name) continue;
+      const rawPhone=phoneCol?String(c[phoneCol]||''):'';
+      const phone=rawPhone.replace(/\D/g,'').slice(-4).padStart(4,'0');
+      const count=countCol?(parseInt(c[countCol])||1):1;
+      newData.push({seq:i,name,phone,count,key:name+'__'+phone});
     }
-    if (!newData.length) { msg.innerHTML = '<div class="msg msg-error">유효한 데이터가 없습니다</div>'; return; }
-
-    const doLoad = () => {
-      S.audience = newData; S.distributed = {}; S.edits = {}; S.selectedKey = null;
-      saveData('audience', newData);
-      saveData('distributed', {});
-      saveData('edits', {});
+    if(!newData.length){msg.innerHTML='<div class="msg msg-error">유효 데이터 없음</div>';return;}
+    const doLoad=()=>{
+      S.audience=newData; S.distributed={}; S.edits={}; S.seatAssignments={}; S.selectedKey=null;
+      saveData('audience',newData); saveData('distributed',{}); saveData('edits',{}); saveData('seatAssignments',{});
       afterDataLoad();
-      document.getElementById('listLoaded').textContent = '✓ '+file.name+' — '+newData.length+'명 로드 완료';
-      document.getElementById('listLoaded').style.display = 'block';
-      document.getElementById('listReplace').style.display = '';
-      msg.innerHTML = '<div class="msg msg-success">✓ '+newData.length+'명 데이터 로드 완료</div>';
-      setTimeout(()=>msg.innerHTML='', 3000);
+      document.getElementById('listLoaded').textContent='✓ '+file.name+' — '+newData.length+'명';
+      document.getElementById('listLoaded').style.display='block';
+      document.getElementById('listReplace').style.display='';
+      msg.innerHTML='<div class="msg msg-success">✓ '+newData.length+'명 로드 완료</div>';
+      setTimeout(()=>msg.innerHTML='',3000);
     };
-
-    if (S.audience.length > 0) {
-      showConfirm('데이터 교체', '기존 '+S.audience.length+'명 데이터를 새 데이터('+newData.length+'명)로 교체합니다.\n배부 기록이 모두 초기화됩니다. 계속하시겠습니까?', doLoad);
-    } else {
-      doLoad();
-    }
-  } catch(e) {
-    msg.innerHTML = '<div class="msg msg-error">파일 오류: '+e.message+'</div>';
-    console.error(e);
-  }
+    if(S.audience.length>0) showConfirm('데이터 교체','기존 '+S.audience.length+'명 데이터를 교체합니다.\n배부 기록이 초기화됩니다.',doLoad);
+    else doLoad();
+  } catch(e) {msg.innerHTML='<div class="msg msg-error">오류: '+e.message+'</div>';console.error(e);}
 });
 
-// 좌석배치도
-setupUpload('seatBox', 'seatFile', async (file) => {
+setupUpload('seatBox','seatFile', async file => {
   try {
-    const r = await parseXLSX(file);
-    const rows = {};
-    r.rows.forEach(row => rows[row.rowNum] = row.cells);
-
-    const layout = {floor1:{}, floor2:{}};
-    const defs1 = [
-      {name:'A블록', rowCol:'Q',  seatCols:['B','C','D','E','F','G','H','I','J','K','L','M','N','O','P'], align:'right'},
-      {name:'B블록', rowCol:'AB', seatCols:['R','S','T','U','V','W','X','Y','Z','AA'], align:'center'},
-      {name:'C블록', rowCol:'AL', seatCols:['AC','AD','AE','AF','AG','AH','AI','AJ','AK'], align:'center'},
-      {name:'D블록', rowCol:'AW', seatCols:['AN','AO','AP','AQ','AR','AS','AT','AU','AV'], align:'center'},
-      {name:'E블록', rowCol:'AW', seatCols:['AX','AY','AZ','BA','BB','BC','BD','BE','BF','BG','BH','BI'], align:'left'}
+    const {rows} = await parseXLSX(file);
+    const rowMap={};
+    rows.forEach(r=>rowMap[r.rowNum]=r.cells);
+    const layout={floor1:{},floor2:{}};
+    const defs1=[
+      {name:'A블록',rowCol:'Q', seatCols:['B','C','D','E','F','G','H','I','J','K','L','M','N','O','P'],align:'right'},
+      {name:'B블록',rowCol:'AB',seatCols:['R','S','T','U','V','W','X','Y','Z','AA'],align:'center'},
+      {name:'C블록',rowCol:'AL',seatCols:['AC','AD','AE','AF','AG','AH','AI','AJ','AK'],align:'center'},
+      {name:'D블록',rowCol:'AW',seatCols:['AN','AO','AP','AQ','AR','AS','AT','AU','AV'],align:'center'},
+      {name:'E블록',rowCol:'AW',seatCols:['AX','AY','AZ','BA','BB','BC','BD','BE','BF','BG','BH','BI'],align:'left'}
     ];
-    defs1.forEach(d => layout.floor1[d.name] = {rows:{}, align:d.align, name:d.name});
-
-    for (let rn=10; rn<=36; rn++) {
-      if (!rows[rn]) continue;
-      defs1.forEach(def => {
-        const rowNum = rows[rn][def.rowCol];
-        if (typeof rowNum!=='number'||rowNum<1||rowNum>30) return;
-        const seats = def.seatCols.filter(c=>typeof rows[rn][c]==='number'&&rows[rn][c]>=1).map(c=>rows[rn][c]);
-        if (seats.length) layout.floor1[def.name].rows[rowNum] = seats;
+    defs1.forEach(d=>layout.floor1[d.name]={rows:{},align:d.align,name:d.name});
+    for(let rn=10;rn<=36;rn++){
+      if(!rowMap[rn]) continue;
+      defs1.forEach(def=>{
+        const rowNum=rowMap[rn][def.rowCol];
+        if(typeof rowNum!=='number'||rowNum<1||rowNum>30) return;
+        const seats=def.seatCols.filter(c=>typeof rowMap[rn][c]==='number'&&rowMap[rn][c]>=1).map(c=>rowMap[rn][c]);
+        if(seats.length) layout.floor1[def.name].rows[rowNum]=seats;
       });
     }
-
-    // 2층
-    layout.floor2['A블록'] = {rows:{}, align:'right', name:'A블록'};
-    layout.floor2['E블록'] = {rows:{}, align:'left', name:'E블록'};
-    layout.floor2['B블록'] = {rows:{}, align:'center', name:'B블록'};
-    layout.floor2['C블록'] = {rows:{}, align:'center', name:'C블록'};
-    layout.floor2['D블록'] = {rows:{}, align:'center', name:'D블록'};
-
-    for (let rn=39; rn<=56; rn++) {
-      if (!rows[rn]) continue;
-      const row = rows[rn];
-      const a = row['A'];
-      if (typeof a==='number'&&a>=1&&a<=20) {
-        const s = ['B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R'].filter(c=>typeof row[c]==='number'&&row[c]>=1).map(c=>row[c]);
-        if (s.length) layout.floor2['A블록'].rows[a] = s;
+    layout.floor2['A블록']={rows:{},align:'right',name:'A블록'};
+    layout.floor2['B블록']={rows:{},align:'center',name:'B블록'};
+    layout.floor2['C블록']={rows:{},align:'center',name:'C블록'};
+    layout.floor2['D블록']={rows:{},align:'center',name:'D블록'};
+    layout.floor2['E블록']={rows:{},align:'left',name:'E블록'};
+    for(let rn=39;rn<=56;rn++){
+      if(!rowMap[rn]) continue;
+      const row=rowMap[rn];
+      const a=row['A'];
+      if(typeof a==='number'&&a>=1&&a<=20){
+        const s=['B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R'].filter(c=>typeof row[c]==='number'&&row[c]>=1).map(c=>row[c]);
+        if(s.length) layout.floor2['A블록'].rows[a]=s;
       }
-      if (!row['A'] && row['C'] && typeof row['C']==='number' && row['C']>=4) {
-        const cv = row['C'];
-        const s = ['D','E','F','G','H','I','J','K','L','M','N','O','P'].filter(c=>typeof row[c]==='number'&&row[c]>=1&&row[c]<=20).map(c=>row[c]);
-        if (s.length && !layout.floor2['A블록'].rows[cv]) layout.floor2['A블록'].rows[cv] = s;
-      }
-      const bh = row['BH'];
-      if (typeof bh==='number'&&bh>=1) {
-        const s = ['BI','BJ','BK','BL','BM'].filter(c=>typeof row[c]==='number'&&row[c]>=1).map(c=>row[c]);
-        if (s.length) layout.floor2['E블록'].rows[bh] = s;
+      const bh=row['BH'];
+      if(typeof bh==='number'&&bh>=1){
+        const s=['BI','BJ','BK','BL','BM'].filter(c=>typeof row[c]==='number'&&row[c]>=1).map(c=>row[c]);
+        if(s.length) layout.floor2['E블록'].rows[bh]=s;
       }
     }
-    for (let rn=52; rn<=65; rn++) {
-      if (!rows[rn]) continue;
-      const row = rows[rn];
-      const ab = row['AB'];
-      if (typeof ab==='number'&&ab>=1&&ab<=20) {
-        const s = ['AC','AD','AE','AF','AG','AH','AI','AJ','AK','AL'].filter(c=>typeof row[c]==='number'&&row[c]>=1&&row[c]<=15).map(c=>row[c]);
-        if (s.length && !layout.floor2['C블록'].rows[ab]) layout.floor2['C블록'].rows[ab] = s;
+    for(let rn=52;rn<=65;rn++){
+      if(!rowMap[rn]) continue;
+      const row=rowMap[rn];
+      const ab=row['AB'];
+      if(typeof ab==='number'&&ab>=1&&ab<=20){
+        const s=['AC','AD','AE','AF','AG','AH','AI','AJ','AK','AL'].filter(c=>typeof row[c]==='number'&&row[c]>=1&&row[c]<=15).map(c=>row[c]);
+        if(s.length&&!layout.floor2['C블록'].rows[ab]) layout.floor2['C블록'].rows[ab]=s;
       }
-      const aw = row['AW'];
-      if (typeof aw==='number'&&aw>=1&&aw<=20) {
-        const s = ['AX','AY','AZ','BA','BB','BC','BD'].filter(c=>typeof row[c]==='number'&&row[c]>=1&&row[c]<=15).map(c=>row[c]);
-        if (s.length && !layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw] = s;
+      const aw=row['AW'];
+      if(typeof aw==='number'&&aw>=1&&aw<=20){
+        const s=['AX','AY','AZ','BA','BB','BC','BD'].filter(c=>typeof row[c]==='number'&&row[c]>=1&&row[c]<=15).map(c=>row[c]);
+        if(s.length&&!layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw]=s;
       }
-      ['I','J','K','L','M','N','O','P'].forEach(bc => {
-        const bv = row[bc];
-        if (typeof bv==='number'&&bv>=1&&bv<=20) {
-          const nextCode = bc.charCodeAt(0)+1;
-          const nextV = row[String.fromCharCode(nextCode)];
-          if (typeof nextV==='number'&&nextV<bv) {
-            const s = [];
-            for (let cc=nextCode; cc<=cn('AA'); cc++) {
-              const cv2 = row[String.fromCharCode(cc)];
-              if (typeof cv2==='number'&&cv2>=1&&cv2<=15) s.push(cv2);
-            }
-            if (s.length && !layout.floor2['B블록'].rows[bv]) layout.floor2['B블록'].rows[bv] = s;
-          }
-        }
-      });
     }
-
-    S.seatLayout = layout;
-    saveData('seatLayout', layout);
-
-    let totalSeats = 0;
-    ['floor1','floor2'].forEach(fl => { Object.values(layout[fl]||{}).forEach(blk => { if(blk&&blk.rows) Object.values(blk.rows).forEach(s=>totalSeats+=s.length); }); });
-
-    document.getElementById('seatLoaded').textContent = '✓ '+file.name+' — 좌석배치도 로드 완료 (총 '+totalSeats+'석)';
-    document.getElementById('seatLoaded').style.display = 'block';
-    document.getElementById('seatReplace').style.display = '';
-    document.getElementById('noSeatMsg').style.display = 'none';
-    document.getElementById('seatChartCard').style.display = 'block';
+    S.seatLayout=layout;
+    saveData('seatLayout',layout);
+    let totalSeats=0;
+    ['floor1','floor2'].forEach(fl=>Object.values(layout[fl]).forEach(blk=>Object.values(blk.rows).forEach(s=>totalSeats+=s.length)));
+    document.getElementById('seatLoaded').textContent='✓ '+file.name+' ('+totalSeats+'석)';
+    document.getElementById('seatLoaded').style.display='block';
+    document.getElementById('seatReplace').style.display='';
+    document.getElementById('noSeatMsg').style.display='none';
+    document.getElementById('seatChartCard').style.display='block';
     updateAll();
-  } catch(e) { alert('좌석배치도 오류: '+e.message); console.error(e); }
+  } catch(e){alert('좌석배치도 오류: '+e.message);console.error(e);}
 });
 
-// ========== 데이터 로드 후 UI 갱신 ==========
+// ===== 데이터 로드 후 =====
 function afterDataLoad() {
-  document.getElementById('searchInput').disabled = false;
-  document.getElementById('listLoaded').style.display = 'block';
-  document.getElementById('listReplace').style.display = '';
-  updateAll();
-  renderResults('');
+  document.getElementById('searchInput').disabled=false;
+  document.getElementById('listLoaded').style.display='block';
+  document.getElementById('listReplace').style.display='';
+  updateAll(); renderResults('');
 }
 
-// ========== 검색 ==========
+// ===== 검색 =====
 document.getElementById('searchInput').addEventListener('input', e => renderResults(e.target.value.trim().toLowerCase()));
 
 const getN  = p => (S.edits[p.key]?.name)  || p.name;
 const getPh = p => (S.edits[p.key]?.phone) || p.phone;
 const getCt = p => (S.edits[p.key]?.count) || p.count;
 
+function getAllPersons() {
+  // 일반 명단 + 추가(VIP/사석) 가상 명단
+  const extras = Object.values(S.extraPersons||{});
+  return [...S.audience, ...extras];
+}
+
 function renderResults(query) {
-  const el = document.getElementById('searchResults');
-  if (!S.audience.length) return;
-  const list = query ? S.audience.filter(p => getN(p).toLowerCase().includes(query) || getPh(p).includes(query)) : S.audience;
-  if (!list.length) { el.innerHTML='<div style="text-align:center;padding:20px;color:var(--text3)">검색 결과 없음</div>'; return; }
-  el.innerHTML = list.map(p => {
-    const done = S.distributed[p.key];
-    const sel = S.selectedKey===p.key;
+  const el=document.getElementById('searchResults');
+  const all=getAllPersons();
+  if(!all.length) return;
+  const list=query ? all.filter(p=>getN(p).toLowerCase().includes(query)||getPh(p).includes(query)) : all;
+  if(!list.length){el.innerHTML='<div style="text-align:center;padding:20px;color:var(--text3)">검색 결과 없음</div>';return;}
+  el.innerHTML=list.map(p=>{
+    const done=S.distributed[p.key];
+    const sel=S.selectedKey===p.key;
+    const isExtra=p.isExtra;
     return `<div class="result-item${sel?' selected':''}" onclick="selectPerson('${p.key}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-        <div><div class="ri-name">${getN(p)}</div><div class="ri-sub">📱 ****${getPh(p)} · ${getCt(p)}명</div></div>
+        <div>
+          <div class="ri-name">${getN(p)}${isExtra?` <span class="badge badge-vip" style="font-size:9px;">${p.extraType==='vip'?'VIP':'사석'}</span>`:''}</div>
+          <div class="ri-sub">📱 ****${getPh(p)} · 본인포함${getCt(p)}명</div>
+        </div>
         <span class="badge ${done?'badge-done':'badge-pending'}">${done?'✓완료':'대기'}</span>
       </div></div>`;
   }).join('');
 }
 
 function selectPerson(key) {
-  S.selectedKey = key;
-  S.seatOpt = 'auto';
-  // 좌석 입력 초기화
-  const blockEl = document.getElementById('seat-block');
-  const rowEl = document.getElementById('seat-row');
-  const numEl = document.getElementById('seat-num');
-  if (blockEl) { blockEl.value = ''; rowEl.value = ''; numEl.value = ''; }
+  S.selectedKey=key;
+  S.seatOpt='auto'; S.pickerBlock=null; S.pickerRow=null; S.pickerSeats=[];
   setSeatOpt('auto');
-  const p = S.audience.find(x => x.key===key);
-  if (!p) return;
+  const all=getAllPersons();
+  const p=all.find(x=>x.key===key);
+  if(!p) return;
   renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
   updatePersonCard(p);
-  if (S.seatLayout) renderSeatingChart();
-  // 모바일: 선택 후 personCard 영역으로 부드럽게 스크롤
-  setTimeout(() => {
-    const card = document.getElementById('personCard');
-    if (card && card.style.display !== 'none') {
-      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, 50);
+  if(S.seatLayout) renderSeatingChart();
+  setTimeout(()=>{
+    const card=document.getElementById('personCard');
+    if(card&&card.style.display!=='none') card.scrollIntoView({behavior:'smooth',block:'start'});
+  },50);
 }
 
 function updatePersonCard(p) {
-  const done = S.distributed[p.key];
-  document.getElementById('personEmpty').style.display = 'none';
-  document.getElementById('personCard').style.display = 'block';
-  document.getElementById('pc-name').textContent = getN(p);
-  document.getElementById('pc-phone').textContent = '****'+getPh(p);
-  const ct = parseInt(getCt(p)) || 1;
-  document.getElementById('pc-count').textContent = '본인 포함 '+ct+'명 (동반 '+(ct-1)+'명)';
-  const st = document.getElementById('pc-status');
-  st.textContent = done ? '✓ 배부완료' : '배부대기';
-  st.className = 'badge '+(done?'badge-done':'badge-pending');
-  document.getElementById('distributeBtn').style.display = done ? 'none' : '';
-  document.getElementById('undoBtn').style.display = done ? '' : 'none';
+  const done=S.distributed[p.key];
+  document.getElementById('personEmpty').style.display='none';
+  document.getElementById('personCard').style.display='block';
+  document.getElementById('pc-name').textContent=getN(p);
+  document.getElementById('pc-phone').textContent='****'+getPh(p);
+  const ct=parseInt(getCt(p))||1;
+  document.getElementById('pc-count').textContent='본인포함 '+ct+'명 (동반 '+(ct-1)+'명)';
+  const st=document.getElementById('pc-status');
+  st.textContent=done?'✓ 배부완료':'배부대기';
+  st.className='badge '+(done?'badge-done':'badge-pending');
   // 배정 좌석 표시
-  const seatInfo = S.seatAssignments && S.seatAssignments[p.key];
-  const seatEl = document.getElementById('pc-seat');
-  if (seatInfo && seatInfo.type === 'manual') {
-    seatEl.textContent = seatInfo.block + ' ' + seatInfo.row + '열 ' + seatInfo.num + '번';
-    seatEl.style.color = '#86efac';
-  } else if (seatInfo && seatInfo.type === 'auto') {
-    seatEl.textContent = '임의 배정';
-    seatEl.style.color = '#fcd34d';
-  } else {
-    seatEl.textContent = '미배정';
-    seatEl.style.color = '#64748b';
-  }
-  document.getElementById('edit-name').value = getN(p);
-  document.getElementById('edit-phone').value = getPh(p);
-  document.getElementById('edit-count').value = getCt(p);
+  const sa=S.seatAssignments[p.key];
+  const saArr=sa?(Array.isArray(sa)?sa:[sa]):[];
+  const seatEl=document.getElementById('pc-seat');
+  if(saArr.length>0) {
+    if(saArr[0].type==='auto') { seatEl.textContent='임의 배정'; seatEl.style.color='#fcd34d'; }
+    else { seatEl.textContent=saArr.map(s=>s.block+' '+s.row+'열 '+s.num+'번').join(', '); seatEl.style.color='#86efac'; }
+  } else { seatEl.textContent='미배정'; seatEl.style.color='#64748b'; }
+  // 배부 전/후 버튼
+  document.getElementById('distributeBtn').style.display=done?'none':'';
+  document.getElementById('undoBtn').style.display=done?'':'none';
+  document.getElementById('seatAssignSection').style.display=done?'none':'';
+  document.getElementById('edit-name').value=getN(p);
+  document.getElementById('edit-phone').value=getPh(p);
+  document.getElementById('edit-count').value=getCt(p);
 }
 
-document.getElementById('distributeBtn').addEventListener('click', () => {
-  if (!S.selectedKey) return;
-  const p = S.audience.find(x=>x.key===S.selectedKey);
-  if (!p) return;
-
-  // 좌석 배정 저장
-  if (S.seatOpt === 'manual') {
-    const block = document.getElementById('seat-block').value;
-    const row = document.getElementById('seat-row').value;
-    const num = document.getElementById('seat-num').value;
-    if (!block || !row || !num) {
-      showMsg('assignMsg', '⚠️ 구역, 열, 좌석번호를 모두 입력해주세요', 'error'); return;
-    }
-    S.seatAssignments[S.selectedKey] = { type:'manual', block, row, num };
+// ===== 좌석 배정 옵션 =====
+function setSeatOpt(opt) {
+  S.seatOpt=opt; S.pickerSeats=[];
+  const autoBtn=document.getElementById('opt-auto');
+  const manBtn=document.getElementById('opt-manual');
+  const picker=document.getElementById('manualSeatPicker');
+  if(opt==='auto'){
+    autoBtn.style.cssText='padding:8px;border:1px solid var(--blue);border-radius:6px;background:rgba(59,130,246,0.2);color:#93c5fd;font-size:12px;font-weight:600;cursor:pointer;';
+    manBtn.style.cssText='padding:8px;border:1px solid var(--border2);border-radius:6px;background:transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;';
+    picker.style.display='none';
   } else {
-    S.seatAssignments[S.selectedKey] = { type:'auto' };
+    manBtn.style.cssText='padding:8px;border:1px solid var(--blue);border-radius:6px;background:rgba(59,130,246,0.2);color:#93c5fd;font-size:12px;font-weight:600;cursor:pointer;';
+    autoBtn.style.cssText='padding:8px;border:1px solid var(--border2);border-radius:6px;background:transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;';
+    picker.style.display='block';
+    buildBlockTabs();
   }
-  saveData('seatAssignments', S.seatAssignments);
+}
 
-  S.distributed[S.selectedKey] = true;
-  saveData('distributed', S.distributed);
-  updateStats(); updatePersonCard(p);
-  renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
-  if (S.seatLayout) renderSeatingChart();
+function buildBlockTabs() {
+  if(!S.seatLayout) return;
+  const blocks=Object.keys(S.seatLayout['floor'+S.currentFloor]||{}).filter(b=>Object.keys(S.seatLayout['floor'+S.currentFloor][b].rows||{}).length>0);
+  const el=document.getElementById('blockTabs');
+  el.innerHTML=blocks.map(b=>`<button class="btab${S.pickerBlock===b?' active':''}" onclick="selectPickerBlock('${b}')">${b}</button>`).join('');
+  document.getElementById('rowPicker').innerHTML='';
+  document.getElementById('seatPickerGrid').innerHTML='';
+  updateSelectedSeatsList();
+}
 
-  const seatInfo = S.seatAssignments[S.selectedKey];
-  const seatStr = seatInfo.type === 'manual'
-    ? seatInfo.block + ' ' + seatInfo.row + '열 ' + seatInfo.num + '번'
-    : '임의 배정';
-  showMsg('assignMsg', '✓ '+getN(p)+'님 배부 완료 ('+seatStr+')', 'success');
+function selectPickerBlock(block) {
+  S.pickerBlock=block; S.pickerRow=null;
+  buildBlockTabs();
+  buildRowPicker();
+}
+
+function buildRowPicker() {
+  if(!S.pickerBlock||!S.seatLayout) return;
+  const blk=S.seatLayout['floor'+S.currentFloor][S.pickerBlock];
+  if(!blk) return;
+  const rows=Object.keys(blk.rows||{}).map(Number).sort((a,b)=>a-b);
+  document.getElementById('rowPicker').innerHTML=rows.map(r=>`<button class="rpick${S.pickerRow===r?' active':''}" onclick="selectPickerRow(${r})">${r}</button>`).join('');
+  document.getElementById('seatPickerGrid').innerHTML='';
+}
+
+function selectPickerRow(row) {
+  S.pickerRow=row;
+  buildRowPicker();
+  buildSeatGrid();
+}
+
+function buildSeatGrid() {
+  if(!S.pickerBlock||!S.pickerRow||!S.seatLayout) return;
+  const blk=S.seatLayout['floor'+S.currentFloor][S.pickerBlock];
+  if(!blk||!blk.rows[S.pickerRow]) return;
+  const seats=blk.rows[S.pickerRow];
+  // 이미 점유된 좌석 파악
+  const takenKeys=new Set();
+  Object.values(S.seatAssignments||{}).forEach(sa=>{
+    if(!Array.isArray(sa)) return;
+    sa.forEach(s=>{ if(s.type==='manual') takenKeys.add(s.block+'|'+s.row+'|'+s.num); });
+  });
+  const el=document.getElementById('seatPickerGrid');
+  el.innerHTML=seats.map(sn=>{
+    const skey=S.pickerBlock+'|'+S.pickerRow+'|'+sn;
+    const special=S.specialSeats[skey];
+    const taken=takenKeys.has(skey);
+    const sel=S.pickerSeats.some(ps=>ps.block===S.pickerBlock&&ps.row===S.pickerRow&&ps.num===sn);
+    let cls='spick';
+    let onclick='';
+    let disabled=false;
+    if(special&&special.type==='vip'){cls+=' vip';disabled=true;}
+    else if(special&&special.type==='blocked'){cls+=' blocked';disabled=true;}
+    else if(taken&&!sel){cls+=' taken';disabled=true;}
+    else if(sel){cls+=' selected';onclick=`onclick="togglePickerSeat(${sn})"`;}
+    else{onclick=`onclick="togglePickerSeat(${sn})"`;}
+    return `<button class="${cls}" ${onclick} ${disabled?'disabled':''}>${sn}</button>`;
+  }).join('');
+}
+
+function togglePickerSeat(sn) {
+  const idx=S.pickerSeats.findIndex(ps=>ps.block===S.pickerBlock&&ps.row===S.pickerRow&&ps.num===sn);
+  if(idx>=0) S.pickerSeats.splice(idx,1);
+  else S.pickerSeats.push({block:S.pickerBlock,row:S.pickerRow,num:sn,type:'manual'});
+  buildSeatGrid();
+  updateSelectedSeatsList();
+}
+
+function updateSelectedSeatsList() {
+  const el=document.getElementById('selectedSeatsList');
+  if(!el) return;
+  if(S.pickerSeats.length===0){el.textContent='선택된 좌석: 없음';el.style.color='#64748b';return;}
+  el.textContent='✓ 선택: '+S.pickerSeats.map(s=>s.block+' '+s.row+'열 '+s.num+'번').join(', ');
+  el.style.color='#86efac';
+}
+
+// ===== 배부 완료/취소 =====
+document.getElementById('distributeBtn').addEventListener('click', () => {
+  if(!S.selectedKey) return;
+  const all=getAllPersons();
+  const p=all.find(x=>x.key===S.selectedKey);
+  if(!p) return;
+  if(S.seatOpt==='manual'&&S.pickerSeats.length===0){
+    showMsg('assignMsg','⚠️ 좌석을 선택해주세요','error'); return;
+  }
+  const ct=parseInt(getCt(p))||1;
+  if(S.seatOpt==='manual'&&S.pickerSeats.length!==ct){
+    showConfirm('좌석 수 불일치',
+      `신청인원: ${ct}명\n선택한 좌석: ${S.pickerSeats.length}개\n\n그대로 배부하시겠습니까?`,
+      ()=>doDistribute(p));
+    return;
+  }
+  doDistribute(p);
 });
 
+function doDistribute(p) {
+  if(S.seatOpt==='manual')
+    S.seatAssignments[p.key]=S.pickerSeats.slice();
+  else
+    S.seatAssignments[p.key]=[{type:'auto'}];
+  saveData('seatAssignments',S.seatAssignments);
+  S.distributed[p.key]=true;
+  saveData('distributed',S.distributed);
+  updateStats(); updatePersonCard(p);
+  renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
+  if(S.seatLayout) renderSeatingChart();
+  const seatStr=S.seatAssignments[p.key][0].type==='auto'?'임의 배정'
+    :S.seatAssignments[p.key].map(s=>s.block+' '+s.row+'열 '+s.num+'번').join(', ');
+  showMsg('assignMsg','✓ '+getN(p)+'님 배부 완료 ('+seatStr+')','success');
+}
+
 document.getElementById('undoBtn').addEventListener('click', () => {
-  const p = S.audience.find(x=>x.key===S.selectedKey);
-  showConfirm('배부 취소', getN(p)+'님의 배부를 취소하시겠습니까?', () => {
-    delete S.distributed[S.selectedKey];
-    delete S.seatAssignments[S.selectedKey];
-    saveData('distributed', S.distributed);
-    saveData('seatAssignments', S.seatAssignments);
+  const all=getAllPersons();
+  const p=all.find(x=>x.key===S.selectedKey);
+  showConfirm('배부 취소',getN(p)+'님의 배부를 취소하시겠습니까?',()=>{
+    delete S.distributed[p.key];
+    delete S.seatAssignments[p.key];
+    saveData('distributed',S.distributed);
+    saveData('seatAssignments',S.seatAssignments);
+    S.pickerSeats=[];
     updateStats(); updatePersonCard(p);
     renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
-    if (S.seatLayout) renderSeatingChart();
+    if(S.seatLayout) renderSeatingChart();
   });
 });
 
 function toggleEdit() {
-  const sec = document.getElementById('modifySection');
-  const show = sec.style.display==='none' || sec.style.display==='';
-  sec.style.display = show ? 'block' : 'none';
-  document.getElementById('editToggleBtn').textContent = show ? '✕ 수정 닫기' : '✏️ 정보 수정';
+  const sec=document.getElementById('modifySection');
+  const show=sec.style.display==='none'||sec.style.display==='';
+  sec.style.display=show?'block':'none';
+  document.getElementById('editToggleBtn').textContent=show?'✕ 수정 닫기':'✏️ 정보 수정';
 }
-
 function saveEdit() {
-  if (!S.selectedKey) return;
-  const name = document.getElementById('edit-name').value.trim();
-  const phone = document.getElementById('edit-phone').value.replace(/\D/g,'').slice(-4).padStart(4,'0');
-  const count = parseInt(document.getElementById('edit-count').value)||1;
-  showConfirm('정보 수정', '엑셀 원본을 무시하고 수정된 정보를 적용합니다. 모든 기기에 즉시 반영됩니다.', () => {
-    S.edits[S.selectedKey] = {name, phone, count};
-    saveData('edits', S.edits);
-    const p = S.audience.find(x=>x.key===S.selectedKey);
+  if(!S.selectedKey) return;
+  const name=document.getElementById('edit-name').value.trim();
+  const phone=document.getElementById('edit-phone').value.replace(/\D/g,'').slice(-4).padStart(4,'0');
+  const count=parseInt(document.getElementById('edit-count').value)||1;
+  showConfirm('정보 수정','엑셀 원본을 무시하고 수정 정보를 적용합니다.',()=>{
+    S.edits[S.selectedKey]={name,phone,count};
+    saveData('edits',S.edits);
+    const all=getAllPersons();
+    const p=all.find(x=>x.key===S.selectedKey);
     updatePersonCard(p);
     renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
-    showMsg('assignMsg', '✓ 정보가 수정되었습니다', 'success');
-    document.getElementById('modifySection').style.display = 'none';
-    document.getElementById('editToggleBtn').textContent = '✏️ 정보 수정';
+    showMsg('assignMsg','✓ 정보 수정 완료','success');
+    document.getElementById('modifySection').style.display='none';
+    document.getElementById('editToggleBtn').textContent='✏️ 정보 수정';
   });
 }
 
-// ========== 좌석배치도 렌더링 ==========
+// ===== 좌석배치도 렌더링 =====
 function setFloor(n) {
-  S.currentFloor = n;
-  document.getElementById('floor1-btn').className = 'floor-btn'+(n===1?' active':'');
-  document.getElementById('floor2-btn').className = 'floor-btn'+(n===2?' active':'');
+  S.currentFloor=n;
+  document.getElementById('floor1-btn').className='floor-btn'+(n===1?' active':'');
+  document.getElementById('floor2-btn').className='floor-btn'+(n===2?' active':'');
   renderSeatingChart();
+  if(S.seatOpt==='manual') buildBlockTabs();
+}
+
+function setAssignFloor(n) {
+  S.currentFloor=n;
+  // 배포현황 탭 버튼도 동기화
+  const f1=document.getElementById('floor1-btn');
+  const f2=document.getElementById('floor2-btn');
+  if(f1) f1.className='floor-btn'+(n===1?' active':'');
+  if(f2) f2.className='floor-btn'+(n===2?' active':'');
+  // 배정 탭 버튼
+  document.getElementById('assign-floor1-btn').className='floor-btn'+(n===1?' active':'');
+  document.getElementById('assign-floor2-btn').className='floor-btn'+(n===2?' active':'');
+  // 피커 초기화 후 재빌드
+  S.pickerBlock=null; S.pickerRow=null; S.pickerSeats=[];
+  buildBlockTabs();
+  updateSelectedSeatsList();
 }
 
 function renderSeatingChart() {
-  if (!S.seatLayout) return;
-  const inner = document.getElementById('seatingInner');
-  const floorKey = 'floor'+S.currentFloor;
-  const blocks = S.seatLayout[floorKey];
-  if (!blocks) return;
+  if(!S.seatLayout) return;
+  const inner=document.getElementById('seatingInner');
+  const floorKey='floor'+S.currentFloor;
+  const blocks=S.seatLayout[floorKey];
+  if(!blocks) return;
 
-  // ── 지정 배정된 좌석 맵 구성: "블록|열|번" → personKey ──
-  const manualSeatMap = {};   // "A블록|3|5" → personKey
-  const autoPersonKeys = new Set(); // 임의 배정 완료자
-
-  S.audience.forEach(p => {
-    if (!S.distributed[p.key]) return;
-    const sa = S.seatAssignments && S.seatAssignments[p.key];
-    if (sa && sa.type === 'manual') {
-      const k = sa.block + '|' + sa.row + '|' + sa.num;
-      manualSeatMap[k] = p.key;
-    } else {
-      autoPersonKeys.add(p.key);
-    }
+  // 지정 배정 맵: "block|row|num" -> personKey
+  const manualMap={};
+  const autoKeys=new Set();
+  const allPersons=getAllPersons();
+  allPersons.forEach(p=>{
+    if(!S.distributed[p.key]) return;
+    const sa=S.seatAssignments[p.key];
+    if(!sa) { autoKeys.add(p.key); return; } // 배정 정보 없으면 임의 처리
+    const saArr=Array.isArray(sa)?sa:[sa];
+    if(!saArr.length||saArr[0].type==='auto') autoKeys.add(p.key);
+    else saArr.forEach(s=>{ if(s&&s.type==='manual') manualMap[s.block+'|'+s.row+'|'+s.num]=p.key; });
   });
 
-  // 선택된 관객의 지정 좌석
-  const selPerson = S.selectedKey ? S.audience.find(p=>p.key===S.selectedKey) : null;
-  const selSA = selPerson && S.seatAssignments && S.seatAssignments[S.selectedKey];
-  const selManualKey = (selSA && selSA.type==='manual')
-    ? (selSA.block + '|' + selSA.row + '|' + selSA.num) : null;
+  // 선택 관객의 지정 좌석
+  const selSA=S.selectedKey?(S.seatAssignments[S.selectedKey]||[]):[];
+  const selManualKeys=new Set(selSA.filter(s=>s.type==='manual').map(s=>s.block+'|'+s.row+'|'+s.num));
+  // 선택 관객의 임의 배정 여부
+  const selIsAuto=selSA.length>0&&selSA[0].type==='auto';
 
-  // 임의 배정 완료자를 좌석에 순서대로 배분 (지정 배정 좌석 제외)
-  const autoQueue = Array.from(autoPersonKeys);
-  let autoQueueIdx = 0;
+  // 피커에서 선택 중인 좌석
+  const pickerKeys=new Set(S.pickerSeats.map(s=>s.block+'|'+s.row+'|'+s.num));
 
-  const blockOrder = ['A블록','B블록','C블록','D블록','E블록'];
-  let html = '<div class="stage">🎵 무 대 🎵</div><div class="floor-layout">';
+  const autoQueue=Array.from(autoKeys);
+  let autoIdx=0;
 
-  blockOrder.forEach(bname => {
-    const blk = blocks[bname];
-    if (!blk) return;
-    const rowNums = Object.keys(blk.rows||{}).map(Number).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
-    if (!rowNums.length) return;
-    const isRight = bname==='A블록';
+  const blockOrder=['A블록','B블록','C블록','D블록','E블록'];
+  let html='<div class="stage">🎵 무 대 🎵</div><div class="floor-layout">';
 
-    html += `<div class="block-wrap"><div class="block-name">${bname}</div><div class="seat-rows">`;
-    rowNums.forEach(rn => {
-      const seats = blk.rows[rn];
-      html += `<div class="seat-row${isRight?' r-align':''}"><div class="row-lbl">${rn}</div>`;
-      seats.forEach(sn => {
-        const seatKey = bname + '|' + rn + '|' + sn;
-        let cls = 'seat';
-        let clickAttr = '';
-        let personKey = null;
+  blockOrder.forEach(bname=>{
+    const blk=blocks[bname];
+    if(!blk) return;
+    const rowNums=Object.keys(blk.rows||{}).map(Number).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
+    if(!rowNums.length) return;
+    const isRight=bname==='A블록';
+    html+=`<div class="block-wrap"><div class="block-name">${bname}</div><div class="seat-rows">`;
+    rowNums.forEach(rn=>{
+      const seats=blk.rows[rn];
+      html+=`<div class="srow${isRight?' r-align':''}"><div class="row-lbl">${rn}</div>`;
+      seats.forEach(sn=>{
+        const sk=bname+'|'+rn+'|'+sn;
+        const special=S.specialSeats[sk];
+        let cls='seat clickable';
+        let aidx=-1;
+        let title=`${bname} ${rn}열 ${sn}번`;
 
-        if (manualSeatMap[seatKey]) {
-          // 지정 배정된 좌석
-          personKey = manualSeatMap[seatKey];
-          if (selManualKey === seatKey) {
-            cls = 'seat highlight';
-          } else {
-            cls = 'seat occupied';
-          }
-          const aidx = S.audience.findIndex(p=>p.key===personKey);
-          clickAttr = `onclick="showSeatInfo(${aidx})" style="cursor:pointer;"`;
-        } else if (selManualKey === seatKey) {
-          // 현재 선택 중인 관객이 지정한 좌석 (아직 배부 전)
-          cls = 'seat highlight';
+        if(special&&special.type==='vip'){
+          cls='seat vip clickable'; title+=' [VIP'+(special.name?': '+special.name:'')+']';
+        } else if(special&&special.type==='blocked'){
+          cls='seat blocked clickable'; title+=' [사석]';
+        } else if(pickerKeys.has(sk)){
+          cls='seat highlight';
+        } else if(selManualKeys.has(sk)){
+          cls=S.distributed[S.selectedKey]?'seat highlight':'seat highlight';
+        } else if(manualMap[sk]){
+          const pKey=manualMap[sk];
+          aidx=allPersons.findIndex(p=>p.key===pKey);
+          cls=pKey===S.selectedKey?'seat highlight':'seat occupied clickable';
         } else {
-          // 임의 배정 순서대로 채우기
-          if (autoQueueIdx < autoQueue.length) {
-            const aKey = autoQueue[autoQueueIdx];
-            autoQueueIdx++;
-            if (S.selectedKey === aKey) {
-              cls = 'seat highlight';
-            } else {
-              cls = 'seat occupied';
-            }
-            const aidx = S.audience.findIndex(p=>p.key===aKey);
-            clickAttr = `onclick="showSeatInfo(${aidx})" style="cursor:pointer;"`;
+          // 임의 배정 순서 채우기
+          if(autoIdx<autoQueue.length){
+            const aKey=autoQueue[autoIdx]; autoIdx++;
+            aidx=allPersons.findIndex(p=>p.key===aKey);
+            cls=(aKey===S.selectedKey&&selIsAuto)?'seat highlight':'seat occupied clickable';
           }
         }
 
-        html += `<div class="${cls}" title="${bname} ${rn}열 ${sn}번" ${clickAttr}>${sn}</div>`;
+        const onclick=`onclick="onSeatClick('${bname}',${rn},${sn},${aidx})"`;
+        html+=`<div class="${cls}" title="${title}" ${onclick}>${sn}</div>`;
       });
-      html += '</div>';
+      html+='</div>';
     });
-    html += '</div></div>';
+    html+='</div></div>';
   });
-
-  html += '</div>';
-  inner.innerHTML = html;
+  html+='</div>';
+  inner.innerHTML=html;
 }
 
-// ========== 통계 ==========
-function updateStats() {
-  const total = S.audience.length;
-  const done = Object.keys(S.distributed).length;
-  const pending = total - done;
-  const pct = total>0 ? Math.round(done/total*100) : 0;
-  ['st-total','st2-total'].forEach(id => document.getElementById(id).textContent=total);
-  ['st-done','st2-done'].forEach(id => document.getElementById(id).textContent=done);
-  ['st-pending','st2-pending'].forEach(id => document.getElementById(id).textContent=pending);
-  document.getElementById('st2-pct').textContent = pct+'%';
-  ['st-bar','st2-bar'].forEach(id => document.getElementById(id).style.width=pct+'%');
-  document.getElementById('st-pct').textContent = pct+'% 배부 완료';
-  let totalSeats = 0;
-  if (S.seatLayout) ['floor1','floor2'].forEach(fl => {
-    const floor = S.seatLayout[fl] || {};
-    Object.values(floor).forEach(blk => { if(blk&&blk.rows) Object.values(blk.rows).forEach(s=>totalSeats+=s.length); });
-  });
-  document.getElementById('st-seats').textContent = totalSeats;
-  document.getElementById('headerStats').textContent = total>0 ? done+'/'+total+'명 ('+pct+'%)' : '';
-  document.getElementById('listReplace').style.display = total>0 ? '' : 'none';
+// ===== 좌석 클릭 =====
+function onSeatClick(block, row, num, aidx) {
+  const sk=block+'|'+row+'|'+num;
+  S.currentSeatKey=sk;
+  const special=S.specialSeats[sk];
+  const modal=document.getElementById('seatModal');
+  const body=document.getElementById('seatModalBody');
+  const title=document.getElementById('seatModalTitle');
+  const vipBtn=document.getElementById('seatModalVipBtn');
+  const blockBtn=document.getElementById('seatModalBlockBtn');
+  const clearBtn=document.getElementById('seatModalClearBtn');
+
+  title.textContent=block+' '+row+'열 '+num+'번';
+  let html='';
+
+  if(special){
+    if(special.type==='vip'){
+      html=`<div class="msg msg-warn" style="margin:0 0 8px;">⭐ VIP 지정 좌석</div>`;
+      if(special.name) html+=`<div style="font-size:14px;font-weight:600;color:#fcd34d;margin-bottom:6px;">${special.name}</div>`;
+      html+=`<input class="input" id="vipEditInput" value="${special.name||''}" placeholder="VIP 성함" style="margin-bottom:0;">`;
+      vipBtn.style.display='';
+      vipBtn.textContent='⭐ 이름 수정';
+      blockBtn.style.display='none';
+      clearBtn.style.display='';
+      clearBtn.textContent='VIP 해제';
+    } else {
+      html=`<div class="msg" style="background:rgba(100,116,139,0.2);border:1px solid var(--border2);color:var(--text2);margin:0;">🚫 사석으로 지정된 좌석입니다</div>`;
+      vipBtn.style.display='none';
+      blockBtn.style.display='none';
+      clearBtn.style.display='';
+      clearBtn.textContent='사석 해제';
+    }
+  } else if(aidx>=0){
+    const allPersons=getAllPersons();
+    const p=allPersons[aidx];
+    if(p){
+      const sa=S.seatAssignments[p.key]||[];
+      const seatStr=sa[0]&&sa[0].type==='auto'?'임의 배정':sa.map(s=>s.block+' '+s.row+'열 '+s.num+'번').join(', ');
+      html=`<div style="background:rgba(16,185,129,0.08);border-radius:8px;padding:12px;">
+        <div class="pc-row"><span class="pc-label">📛 성명</span><span class="pc-value">${getN(p)}</span></div>
+        <div class="pc-row"><span class="pc-label">📱 연락처</span><span class="pc-value">****${getPh(p)}</span></div>
+        <div class="pc-row"><span class="pc-label">🎫 인원</span><span class="pc-value">본인포함 ${getCt(p)}명</span></div>
+        <div class="pc-row" style="border:none;"><span class="pc-label">🪑 배정</span><span class="pc-value" style="color:#86efac;font-size:11px;">${seatStr}</span></div>
+      </div>`;
+      vipBtn.style.display='none'; blockBtn.style.display='none'; clearBtn.style.display='none';
+    }
+  } else {
+    html=`<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px;">빈 좌석입니다</div>`;
+    vipBtn.style.display=''; vipBtn.textContent='⭐ VIP 지정';
+    blockBtn.style.display=''; blockBtn.textContent='🚫 사석 지정';
+    clearBtn.style.display='none';
+  }
+
+  body.innerHTML=html;
+  modal.style.display='flex';
 }
 
-function updateAll() {
-  updateStats();
-  renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
-  if (S.seatLayout) {
-    document.getElementById('noSeatMsg').style.display = 'none';
-    document.getElementById('seatChartCard').style.display = 'block';
-    if (document.getElementById('status').classList.contains('active')) renderSeatingChart();
+function closeSeatModal() { document.getElementById('seatModal').style.display='none'; }
+
+function setSeatSpecial(type) {
+  if(!S.currentSeatKey) return;
+  if(type==='vip') {
+    // VIP는 이름 입력 or 이미 열려있으면 수정
+    const editInput=document.getElementById('vipEditInput');
+    if(editInput) {
+      // 이미 vip 모달에 수정 input 있는 경우
+      const name=editInput.value.trim();
+      doSetVip(name);
+    } else {
+      closeSeatModal();
+      const sk=S.currentSeatKey.split('|');
+      document.getElementById('vipSeatLabel').textContent=sk[0]+' '+sk[1]+'열 '+sk[2]+'번';
+      document.getElementById('vipNameInput').value='';
+      document.getElementById('vipNameModal').style.display='flex';
+      setTimeout(()=>document.getElementById('vipNameInput').focus(),100);
+    }
+  } else {
+    S.specialSeats[S.currentSeatKey]={type:'blocked'};
+    saveData('specialSeats',S.specialSeats);
+    addExtraPerson(S.currentSeatKey,'blocked','사석');
+    closeSeatModal();
+    renderSeatingChart();
+    updateAll();
   }
 }
 
-// ========== 탭 전환 ==========
+function clearSeatSpecial() {
+  if(!S.currentSeatKey) return;
+  const old=S.specialSeats[S.currentSeatKey];
+  delete S.specialSeats[S.currentSeatKey];
+  saveData('specialSeats',S.specialSeats);
+  // extra persons에서도 제거
+  if(old) removeExtraPerson(S.currentSeatKey);
+  closeSeatModal();
+  renderSeatingChart();
+  updateAll();
+}
+
+function confirmVip() {
+  const name=document.getElementById('vipNameInput').value.trim();
+  doSetVip(name);
+  closeVipModal();
+}
+function closeVipModal() { document.getElementById('vipNameModal').style.display='none'; }
+
+function doSetVip(name) {
+  S.specialSeats[S.currentSeatKey]={type:'vip',name:name||''};
+  saveData('specialSeats',S.specialSeats);
+  addExtraPerson(S.currentSeatKey,'vip',name||'VIP');
+  closeSeatModal();
+  renderSeatingChart();
+  updateAll();
+}
+
+// 좌석 클릭으로 VIP 이름 수정 시 (이미 vip인 경우)
+function setSeatSpecialVipEdit() {
+  const editInput=document.getElementById('vipEditInput');
+  if(!editInput||!S.currentSeatKey) return;
+  doSetVip(editInput.value.trim());
+}
+
+// ===== 추가 인원 관리 (VIP/사석) =====
+function addExtraPerson(seatKey, extraType, name) {
+  const key='extra__'+seatKey;
+  S.extraPersons[key]={
+    key, name, phone:'0000', count:1,
+    isExtra:true, extraType, seatKey,
+    seq:9000+Object.keys(S.extraPersons).length
+  };
+  // 자동으로 배부 완료 처리 (VIP, 사석 모두)
+  S.distributed[key]=true;
+  S.seatAssignments[key]=[{type:'manual',block:seatKey.split('|')[0],row:parseInt(seatKey.split('|')[1]),num:parseInt(seatKey.split('|')[2])}];
+  saveData('extraPersons',S.extraPersons);
+  saveData('distributed',S.distributed);
+  saveData('seatAssignments',S.seatAssignments);
+}
+
+function removeExtraPerson(seatKey) {
+  const key='extra__'+seatKey;
+  delete S.extraPersons[key];
+  delete S.distributed[key];
+  delete S.seatAssignments[key];
+  saveData('extraPersons',S.extraPersons);
+  saveData('distributed',S.distributed);
+  saveData('seatAssignments',S.seatAssignments);
+}
+
+// ===== 탭 전환 =====
 function switchTab(name) {
-  ['upload','assign','status'].forEach(t => {
+  ['assign','status','upload'].forEach(t=>{
     document.getElementById(t).classList.remove('active');
     document.getElementById('tab-'+t).classList.remove('active');
   });
   document.getElementById(name).classList.add('active');
   document.getElementById('tab-'+name).classList.add('active');
-  if (name==='status' && S.seatLayout) renderSeatingChart();
+  if(name==='status'&&S.seatLayout) renderSeatingChart();
 }
 
-// ========== 좌석 배정 옵션 ==========
-function setSeatOpt(opt) {
-  S.seatOpt = opt;
-  const autoBtn = document.getElementById('opt-auto');
-  const manualBtn = document.getElementById('opt-manual');
-  const manualInput = document.getElementById('manualSeatInput');
-  if (opt === 'auto') {
-    autoBtn.style.borderColor = '#3b82f6';
-    autoBtn.style.background = 'rgba(59,130,246,0.2)';
-    autoBtn.style.color = '#93c5fd';
-    manualBtn.style.borderColor = '#475569';
-    manualBtn.style.background = 'transparent';
-    manualBtn.style.color = '#94a3b8';
-    manualInput.style.display = 'none';
-  } else {
-    manualBtn.style.borderColor = '#3b82f6';
-    manualBtn.style.background = 'rgba(59,130,246,0.2)';
-    manualBtn.style.color = '#93c5fd';
-    autoBtn.style.borderColor = '#475569';
-    autoBtn.style.background = 'transparent';
-    autoBtn.style.color = '#94a3b8';
-    manualInput.style.display = 'block';
+// ===== 통계 =====
+function updateStats() {
+  const allPersons=getAllPersons();
+  const total=allPersons.length;
+  const done=allPersons.filter(p=>S.distributed[p.key]).length;
+  const pending=total-done;
+  const pct=total>0?Math.round(done/total*100):0;
+  ['st-total','st2-total'].forEach(id=>document.getElementById(id).textContent=total);
+  ['st-done','st2-done'].forEach(id=>document.getElementById(id).textContent=done);
+  ['st-pending','st2-pending'].forEach(id=>document.getElementById(id).textContent=pending);
+  document.getElementById('st2-pct').textContent=pct+'%';
+  ['st-bar','st2-bar'].forEach(id=>document.getElementById(id).style.width=pct+'%');
+  document.getElementById('st-pct').textContent=pct+'% 배부 완료';
+  let totalSeats=0;
+  if(S.seatLayout) ['floor1','floor2'].forEach(fl=>{
+    const floor=S.seatLayout[fl]||{};
+    Object.values(floor).forEach(blk=>{if(blk&&blk.rows)Object.values(blk.rows).forEach(s=>totalSeats+=s.length);});
+  });
+  document.getElementById('st-seats').textContent=totalSeats;
+  document.getElementById('headerStats').textContent=total>0?done+'/'+total+'명 ('+pct+'%)':'';
+  document.getElementById('listReplace').style.display=S.audience.length>0?'':'none';
+}
+
+function updateAll() {
+  updateStats();
+  renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
+  if(S.seatLayout){
+    document.getElementById('noSeatMsg').style.display='none';
+    document.getElementById('seatChartCard').style.display='block';
+    if(document.getElementById('status').classList.contains('active')) renderSeatingChart();
   }
 }
 
-// ========== 좌석 클릭 정보 표시 ==========
-function showSeatInfo(audienceIdx) {
-  const p = S.audience[audienceIdx];
-  if (!p) return;
-  const ct = parseInt(getCt(p)) || 1;
-  document.getElementById('si-name').textContent = getN(p);
-  document.getElementById('si-phone').textContent = '****' + getPh(p);
-  document.getElementById('si-count').textContent = '본인 포함 ' + ct + '명';
-  const sa = S.seatAssignments && S.seatAssignments[p.key];
-  const seatEl = document.getElementById('si-seat');
-  if (sa && sa.type === 'manual') {
-    seatEl.textContent = sa.block + ' ' + sa.row + '열 ' + sa.num + '번';
-  } else if (sa && sa.type === 'auto') {
-    seatEl.textContent = '임의 배정';
-    seatEl.style.color = '#fcd34d';
-  } else {
-    seatEl.textContent = '정보 없음';
-    seatEl.style.color = '#64748b';
-  }
-  const modal = document.getElementById('seatInfoModal');
-  modal.style.display = 'flex';
+// ===== 모달 =====
+let _confirmCb=null;
+function showConfirm(title,body,cb) {
+  document.getElementById('confirmTitle').textContent=title;
+  document.getElementById('confirmBody').textContent=body;
+  _confirmCb=cb;
+  document.getElementById('confirmModal').style.display='flex';
 }
-
-// ========== 모달 ==========
-let _confirmCb = null;
-function showConfirm(title, body, cb) {
-  document.getElementById('confirmTitle').textContent = title;
-  document.getElementById('confirmBody').textContent = body;
-  _confirmCb = cb;
-  document.getElementById('confirmModal').style.display = 'flex';
-}
-document.getElementById('confirmOk').addEventListener('click', () => {
-  document.getElementById('confirmModal').style.display = 'none';
-  if (_confirmCb) _confirmCb();
+document.getElementById('confirmOk').addEventListener('click',()=>{
+  document.getElementById('confirmModal').style.display='none';
+  if(_confirmCb) _confirmCb();
 });
-function closeConfirm() { document.getElementById('confirmModal').style.display = 'none'; }
-
-function showMsg(elId, text, type) {
-  const el = document.getElementById(elId);
-  el.innerHTML = `<div class="msg msg-${type}">${text}</div>`;
-  setTimeout(() => el.innerHTML='', 3000);
+function closeConfirm() { document.getElementById('confirmModal').style.display='none'; }
+function showMsg(elId,text,type) {
+  const el=document.getElementById(elId);
+  el.innerHTML=`<div class="msg msg-${type}">${text}</div>`;
+  setTimeout(()=>el.innerHTML='',3000);
 }
 
-// ========== 초기 로드 (로컬 폴백) ==========
+// ===== 초기 로드 =====
 localLoad();
-// Firebase 모드일 때는 리스너가 데이터 덮어씀 → 로컬 데이터는 임시 표시용
-if (S.audience.length) {
-  document.getElementById('searchInput').disabled = false;
-  document.getElementById('listLoaded').textContent = '✓ 저장된 당첨자 명단 — '+S.audience.length+'명';
-  document.getElementById('listLoaded').style.display = 'block';
-  document.getElementById('listReplace').style.display = '';
+if(S.audience.length) {
+  document.getElementById('searchInput').disabled=false;
+  document.getElementById('listLoaded').textContent='✓ 저장된 명단 — '+S.audience.length+'명';
+  document.getElementById('listLoaded').style.display='block';
+  document.getElementById('listReplace').style.display='';
+  renderResults('');
 }
-if (S.seatLayout) {
-  document.getElementById('seatLoaded').textContent = '✓ 저장된 좌석배치도';
-  document.getElementById('seatLoaded').style.display = 'block';
-  document.getElementById('seatReplace').style.display = '';
-  document.getElementById('noSeatMsg').style.display = 'none';
-  document.getElementById('seatChartCard').style.display = 'block';
+if(S.seatLayout) {
+  document.getElementById('seatLoaded').textContent='✓ 저장된 좌석배치도';
+  document.getElementById('seatLoaded').style.display='block';
+  document.getElementById('seatReplace').style.display='';
+  document.getElementById('noSeatMsg').style.display='none';
+  document.getElementById('seatChartCard').style.display='block';
 }
 updateAll();
 </script>
