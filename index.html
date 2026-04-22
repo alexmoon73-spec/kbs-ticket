@@ -468,6 +468,33 @@ code{background:var(--bg3);border:1px solid var(--border);padding:1px 5px;border
   </div>
 </div>
 
+<!-- 좌석 클릭 정보 팝업 -->
+<div id="seatInfoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1001;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#1e293b;border:2px solid var(--green);border-radius:14px;padding:24px;max-width:320px;width:100%;">
+    <div style="font-size:13px;font-weight:700;color:#86efac;margin-bottom:14px;display:flex;align-items:center;gap:6px;">
+      ✅ 배부 완료된 좌석
+    </div>
+    <div style="background:#0f172a;border-radius:8px;padding:14px;margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #334155;font-size:14px;">
+        <span style="color:#94a3b8;">📛 성명</span>
+        <span style="color:#f1f5f9;font-weight:700;" id="si-name">—</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #334155;font-size:14px;">
+        <span style="color:#94a3b8;">📱 연락처</span>
+        <span style="color:#f1f5f9;font-weight:600;" id="si-phone">—</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:14px;">
+        <span style="color:#94a3b8;">🎫 신청인원</span>
+        <span style="color:#f1f5f9;font-weight:600;" id="si-count">—</span>
+      </div>
+    </div>
+    <button onclick="document.getElementById('seatInfoModal').style.display='none'"
+      style="width:100%;padding:11px;background:linear-gradient(135deg,#10b981,#059669);border:none;border-radius:8px;color:white;font-size:14px;font-weight:700;cursor:pointer;">
+      닫기
+    </button>
+  </div>
+</div>
+
 <!-- 확인 모달 -->
 <div class="confirm-modal" id="confirmModal" style="display:none;">
   <div class="confirm-box">
@@ -813,9 +840,10 @@ function updatePersonCard(p) {
 
 document.getElementById('distributeBtn').addEventListener('click', () => {
   if (!S.selectedKey) return;
+  const p = S.audience.find(x=>x.key===S.selectedKey);
+  if (!p) return;
   S.distributed[S.selectedKey] = true;
   saveData('distributed', S.distributed);
-  const p = S.audience.find(x=>x.key===S.selectedKey);
   updateStats(); updatePersonCard(p);
   renderResults(document.getElementById('searchInput').value.trim().toLowerCase());
   if (S.seatLayout) renderSeatingChart();
@@ -901,7 +929,8 @@ function renderSeatingChart() {
         const isDone = doneIndices.has(aidx);
         const isHL = aidx===selIdx && selIdx>=0;
         const cls = 'seat'+(isHL?' highlight':(isDone?' occupied':''));
-        html += `<div class="${cls}" title="${bname} ${rn}열 ${sn}번">${sn}</div>`;
+        const clickAttr = isDone ? `onclick="showSeatInfo(${aidx})" style="cursor:pointer;"` : '';
+        html += `<div class="${cls}" title="${bname} ${rn}열 ${sn}번" ${clickAttr}>${sn}</div>`;
         seatIdx++;
       });
       html += '</div>';
@@ -953,6 +982,17 @@ function switchTab(name) {
   document.getElementById(name).classList.add('active');
   document.getElementById('tab-'+name).classList.add('active');
   if (name==='status' && S.seatLayout) renderSeatingChart();
+}
+
+// ========== 좌석 클릭 정보 표시 ==========
+function showSeatInfo(audienceIdx) {
+  const p = S.audience[audienceIdx];
+  if (!p) return;
+  document.getElementById('si-name').textContent = getN(p);
+  document.getElementById('si-phone').textContent = '****' + getPh(p);
+  document.getElementById('si-count').textContent = getCt(p) + '명';
+  const modal = document.getElementById('seatInfoModal');
+  modal.style.display = 'flex';
 }
 
 // ========== 모달 ==========
