@@ -401,6 +401,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="progress-bar"><div class="progress-fill" id="st-bar" style="width:0%"></div></div>
     <div style="font-size:10px;color:var(--text3);text-align:right;" id="st-pct">0% 배부 완료</div>
   </div>
+
+  <!-- 전체 초기화 -->
+  <div class="card" style="border-color:rgba(239,68,68,0.3);">
+    <div class="card-title" style="color:var(--red);">⚠️ 데이터 초기화</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6;">
+      배부 기록, VIP·사석 지정, 좌석 배정을 모두 초기화합니다.<br>
+      새 공연 시작 전 또는 데이터 오류 시 사용하세요.
+    </div>
+    <button class="btn btn-danger" onclick="resetAllData()" style="width:100%;">🗑️ 전체 초기화</button>
+  </div>
 </div>
 
 <!-- 좌석 정보/VIP·사석 지정 모달 -->
@@ -587,8 +597,8 @@ setupUpload('listBox','listFile', async file => {
     }
     if(!newData.length){msg.innerHTML='<div class="msg msg-error">유효 데이터 없음</div>';return;}
     const doLoad=()=>{
-      S.audience=newData; S.distributed={}; S.edits={}; S.seatAssignments={}; S.selectedKey=null;
-      saveData('audience',newData); saveData('distributed',{}); saveData('edits',{}); saveData('seatAssignments',{});
+      S.audience=newData; S.distributed={}; S.edits={}; S.seatAssignments={}; S.specialSeats={}; S.extraPersons={}; S.selectedKey=null;
+      saveData('audience',newData); saveData('distributed',{}); saveData('edits',{}); saveData('seatAssignments',{}); saveData('specialSeats',{}); saveData('extraPersons',{});
       afterDataLoad();
       document.getElementById('listLoaded').textContent='✓ '+file.name+' — '+newData.length+'명';
       document.getElementById('listLoaded').style.display='block';
@@ -596,7 +606,7 @@ setupUpload('listBox','listFile', async file => {
       msg.innerHTML='<div class="msg msg-success">✓ '+newData.length+'명 로드 완료</div>';
       setTimeout(()=>msg.innerHTML='',3000);
     };
-    if(S.audience.length>0) showConfirm('데이터 교체','기존 '+S.audience.length+'명 데이터를 교체합니다.\n배부 기록이 초기화됩니다.',doLoad);
+    if(S.audience.length>0) showConfirm('데이터 교체','기존 '+S.audience.length+'명 데이터를 교체합니다.\n배부 기록, VIP·사석 지정이 모두 초기화됩니다.',doLoad);
     else doLoad();
   } catch(e) {msg.innerHTML='<div class="msg msg-error">오류: '+e.message+'</div>';console.error(e);}
 });
@@ -1178,6 +1188,30 @@ function removeExtraPerson(seatKey) {
   saveData('extraPersons',S.extraPersons);
   saveData('distributed',S.distributed);
   saveData('seatAssignments',S.seatAssignments);
+}
+
+// ===== 전체 초기화 =====
+function resetAllData() {
+  showConfirm(
+    '⚠️ 전체 초기화',
+    '배부 기록, VIP·사석 지정, 좌석 배정이 모두 삭제됩니다.\n당첨자 명단과 좌석배치도는 유지됩니다.\n\n정말 초기화하시겠습니까?',
+    () => {
+      S.distributed = {};
+      S.seatAssignments = {};
+      S.specialSeats = {};
+      S.extraPersons = {};
+      S.selectedKey = null;
+      saveData('distributed', {});
+      saveData('seatAssignments', {});
+      saveData('specialSeats', {});
+      saveData('extraPersons', {});
+      document.getElementById('personCard').style.display = 'none';
+      document.getElementById('personEmpty').style.display = 'flex';
+      updateAll();
+      if (S.seatLayout) renderSeatingChart();
+      showMsg('uploadMsg', '✓ 초기화 완료', 'success');
+    }
+  );
 }
 
 // ===== 탭 전환 =====
