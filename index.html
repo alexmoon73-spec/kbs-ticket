@@ -1021,7 +1021,8 @@ function calcAutoSeats() {
     const arr=Array.isArray(sa)?sa:[sa];
     arr.forEach(s=>{ if(s&&s.type==='manual') manualTaken.add(s.block+'|'+s.row+'|'+s.num); });
   });
-  Object.keys(S.specialSeats||{}).forEach(sk=>manualTaken.add(sk));
+  // 사석(blocked)과 VIP도 임의배정에서 제외
+  Object.entries(S.specialSeats||{}).forEach(([sk,sp])=>{ manualTaken.add(sk); });
 
   const autoPersons=allPersons.filter(p=>{
     if(!S.distributed[p.key]) return false;
