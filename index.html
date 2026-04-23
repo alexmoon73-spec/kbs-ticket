@@ -193,6 +193,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .floor-btn{padding:5px 12px;border:1px solid var(--border2);border-radius:5px;background:transparent;color:var(--text2);cursor:pointer;font-size:12px;transition:all 0.2s;}
 .floor-btn.active{background:var(--blue);border-color:var(--blue);color:white;}
 .seating-outer{overflow:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;background:var(--bg3);max-height:72vh;}
+.seating-outer.group-mode{border:2px solid var(--blue);box-shadow:0 0 12px rgba(59,130,246,0.2);}
 .seating-inner{padding:16px;width:max-content;min-width:100%;touch-action:pan-x pan-y;}
 .stage{background:linear-gradient(135deg,#1e3a5f,#1e4a7f);border:1px solid #2563eb;border-radius:6px;text-align:center;padding:7px;font-size:11px;font-weight:700;color:#93c5fd;margin-bottom:14px;min-width:600px;letter-spacing:2px;}
 .floor-layout{display:flex;gap:10px;justify-content:flex-start;align-items:flex-start;width:max-content;}
@@ -505,6 +506,8 @@ function localLoad() {
   try {
     ['audience','seatLayout','distributed','edits','seatAssignments','specialSeats','extraPersons']
       .forEach(k => { const v=localStorage.getItem('kbs3_'+k); if(v) S[k]=JSON.parse(v); });
+    // seatLayout rows 키 정규화 (Firebase 저장 시 문자열→숫자 변환)
+    if(S.seatLayout) S.seatLayout=normalizeSeatLayout(S.seatLayout);
     // seatAssignments 이전 버전 호환
     if (S.seatAssignments) {
       Object.keys(S.seatAssignments).forEach(k => {
@@ -1078,15 +1081,13 @@ function renderSeatingChart() {
 
   // 선택 관객의 지정 좌석
   const selSA=S.selectedKey?(S.seatAssignments[S.selectedKey]||[]):[];
-  const selManualKeys=new Set(selSA.filter(s=>s.type==='manual').map(s=>s.block+'|'+s.row+'|'+s.num));
-  // 선택 관객의 임의 배정 여부
-  const selIsAuto=selSA.length>0&&selSA[0].type==='auto';
+  const selManualKeys=new Set(selSA.filter(s=>s&&s.type==='manual').map(s=>s.block+'|'+s.row+'|'+s.num));
+  // 선택 관객의 임의 배정 좌석
+  const selAutoSeats=S.selectedKey?(autoSeats[S.selectedKey]||[]):[];
+  const selAutoKeys=new Set(selAutoSeats.map(s=>s.block+'|'+s.row+'|'+s.num));
 
   // 피커에서 선택 중인 좌석
   const pickerKeys=new Set(S.pickerSeats.map(s=>s.block+'|'+s.row+'|'+s.num));
-
-  const autoQueue=Array.from(autoKeys);
-  let autoIdx=0;
 
   const blockOrder=['A블록','B블록','C블록','D블록','E블록'];
   let html='<div class="stage">🎵 무 대 🎵</div><div class="floor-layout">';
@@ -1108,7 +1109,9 @@ function renderSeatingChart() {
         let aidx=-1;
         let title=`${bname} ${rn}열 ${sn}번`;
 
-        if(special&&special.type==='vip'){
+        if(S.groupSelectMode&&S.groupSelected.has(sk)){
+          cls='seat highlight'; // 그룹 선택됨 - 파란색
+        } else if(special&&special.type==='vip'){
           cls='seat vip clickable'; title+=' [VIP'+(special.name?': '+special.name:'')+']';
         } else if(special&&special.type==='blocked'){
           cls='seat blocked clickable'; title+=' [사석]';
@@ -1120,13 +1123,10 @@ function renderSeatingChart() {
           const pKey=manualMap[sk];
           aidx=allPersons.findIndex(p=>p.key===pKey);
           cls=pKey===S.selectedKey?'seat highlight':'seat occupied clickable';
-        } else {
-          // 임의 배정 순서 채우기
-          if(autoIdx<autoQueue.length){
-            const aKey=autoQueue[autoIdx]; autoIdx++;
-            aidx=allPersons.findIndex(p=>p.key===aKey);
-            cls=(aKey===S.selectedKey&&selIsAuto)?'seat highlight':'seat occupied clickable';
-          }
+        } else if(autoMap[sk]){
+          const pKey=autoMap[sk];
+          aidx=allPersons.findIndex(p=>p.key===pKey);
+          cls=pKey===S.selectedKey?'seat highlight':'seat occupied clickable';
         }
 
         const onclick=`onclick="onSeatClick('${bname}',${rn},${sn},${aidx})"`;
@@ -1318,21 +1318,28 @@ function startGroupSelect(firstSeatKey) {
   S.groupSelectMode = true;
   S.groupSelected = new Set([firstSeatKey]);
   closeSeatModal();
+  // 배포현황 탭으로 이동
+  switchTab('status');
   renderSeatingChart();
   // 안내 배너 표시
   const banner = document.getElementById('groupSelectBanner');
   if(banner) {
     banner.style.display='block';
-    document.getElementById('groupCount').textContent = S.groupSelected.size;
+    const el=document.getElementById('groupCount');
+    if(el) el.textContent = S.groupSelected.size;
   }
+  // seating-outer에 그룹 모드 테두리
+  const outer=document.getElementById('seatingOuter');
+  if(outer) outer.classList.add('group-mode');
 }
 
 function toggleGroupSeat(sk) {
   if(!S.groupSelectMode) return false;
   if(S.groupSelected.has(sk)) S.groupSelected.delete(sk);
   else S.groupSelected.add(sk);
-  document.getElementById('groupCount').textContent = S.groupSelected.size;
-  renderSeatingChart();
+  const el = document.getElementById('groupCount');
+  if(el) el.textContent = S.groupSelected.size;
+  renderSeatingChart(); // 즉시 화면 반영
   return true;
 }
 
@@ -1366,6 +1373,8 @@ function cancelGroupSelect() {
   S.groupSelected=new Set();
   const banner=document.getElementById('groupSelectBanner');
   if(banner) banner.style.display='none';
+  const outer=document.getElementById('seatingOuter');
+  if(outer) outer.classList.remove('group-mode');
   renderSeatingChart();
 }
 
