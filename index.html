@@ -346,6 +346,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="progress-bar"><div class="progress-fill" id="st2-bar" style="width:0%"></div></div>
   </div>
   <div class="card" id="noSeatMsg" style="text-align:center;padding:36px;color:var(--text3);">좌석배치도를 업로드하면 시각화가 표시됩니다</div>
+  <!-- 그룹 선택 배너 -->
+  <div id="groupSelectBanner" class="card" style="display:none;border-color:rgba(59,130,246,0.4);padding:12px;background:rgba(59,130,246,0.08);">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:13px;color:#93c5fd;font-weight:600;">
+        🔲 그룹 선택 모드 — <span id="groupCount">0</span>개 선택됨
+        <span style="font-size:11px;color:var(--text2);font-weight:400;margin-left:6px;">빈 좌석을 터치해서 추가/제거</span>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-orange" onclick="applyGroupSpecial('vip')" style="padding:6px 12px;font-size:12px;">⭐ VIP</button>
+        <button class="btn btn-danger" onclick="applyGroupSpecial('blocked')" style="padding:6px 12px;font-size:12px;">🚫 사석</button>
+        <button class="btn btn-ghost" onclick="cancelGroupSelect()" style="padding:6px 12px;font-size:12px;">취소</button>
+      </div>
+    </div>
+  </div>
+
   <div id="seatChartCard" class="card" style="display:none;padding:10px;">
     <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:8px;">
       <div class="legend">
@@ -470,10 +485,12 @@ window.__S = {
   seatOpt: 'auto',
   pickerBlock: null,
   pickerRow: null,
-  pickerSeats: [],      // 선택된 좌석 배열 [{block,row,num}]
-  currentSeatKey: null, // 모달에서 현재 처리 중인 좌석
+  pickerSeats: [],
+  currentSeatKey: null,
   selectedKey: null,
-  currentFloor: 1
+  currentFloor: 1,
+  groupSelectMode: false,   // 그룹 선택 모드
+  groupSelected: new Set()  // 그룹 선택된 좌석 키
 };
 var S = window.__S;
 
@@ -759,8 +776,21 @@ function updatePersonCard(p) {
   const saArr=sa?(Array.isArray(sa)?sa:[sa]):[];
   const seatEl=document.getElementById('pc-seat');
   if(saArr.length>0) {
-    if(saArr[0].type==='auto') { seatEl.textContent='임의 배정'; seatEl.style.color='#fcd34d'; }
-    else { seatEl.textContent=saArr.map(s=>s.block+' '+s.row+'열 '+s.num+'번').join(', '); seatEl.style.color='#86efac'; }
+    if(saArr[0].type==='auto') {
+      // 임의배정: 실제 좌석 계산해서 표시
+      const autoCalc=calcAutoSeats();
+      const mySeats=autoCalc[p.key]||[];
+      if(mySeats.length>0) {
+        seatEl.textContent=mySeats.map(s=>s.block+' '+s.row+'열 '+s.num+'번').join(', ');
+        seatEl.style.color='#fcd34d';
+      } else {
+        seatEl.textContent='임의 배정 (좌석 계산 중)';
+        seatEl.style.color='#fcd34d';
+      }
+    } else {
+      seatEl.textContent=saArr.map(s=>s.block+' '+s.row+'열 '+s.num+'번').join(', ');
+      seatEl.style.color='#86efac';
+    }
   } else { seatEl.textContent='미배정'; seatEl.style.color='#64748b'; }
   // 배부 전/후 버튼
   document.getElementById('distributeBtn').style.display=done?'none':'';
@@ -964,6 +994,60 @@ function setAssignFloor(n) {
   updateSelectedSeatsList();
 }
 
+// 전체 좌석 순서 배열 반환 (블록 순서대로)
+function getAllSeatsOrdered(floorKey) {
+  if(!S.seatLayout) return [];
+  const blocks=S.seatLayout[floorKey];
+  if(!blocks) return [];
+  const blockOrder=['A블록','B블록','C블록','D블록','E블록'];
+  const seats=[];
+  blockOrder.forEach(bname=>{
+    const blk=blocks[bname];
+    if(!blk) return;
+    const rowNums=Object.keys(blk.rows||{}).map(Number).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
+    rowNums.forEach(rn=>{
+      (blk.rows[rn]||[]).forEach(sn=>{ seats.push({block:bname,row:rn,num:sn,key:bname+'|'+rn+'|'+sn}); });
+    });
+  });
+  return seats;
+}
+
+// 임의배정된 관객의 실제 좌석 계산 (배정 순서 기반)
+function calcAutoSeats() {
+  const allPersons=getAllPersons();
+  const manualTaken=new Set();
+  Object.entries(S.seatAssignments||{}).forEach(([k,sa])=>{
+    if(!S.distributed[k]) return;
+    const arr=Array.isArray(sa)?sa:[sa];
+    arr.forEach(s=>{ if(s&&s.type==='manual') manualTaken.add(s.block+'|'+s.row+'|'+s.num); });
+  });
+  Object.keys(S.specialSeats||{}).forEach(sk=>manualTaken.add(sk));
+
+  const autoPersons=allPersons.filter(p=>{
+    if(!S.distributed[p.key]) return false;
+    const sa=S.seatAssignments[p.key];
+    if(!sa) return true;
+    const arr=Array.isArray(sa)?sa:[sa];
+    return !arr.length||arr[0].type==='auto';
+  });
+
+  // 1층 2층 모두 순서대로 빈 좌석 배분
+  const allSeats=[...getAllSeatsOrdered('floor1'),...getAllSeatsOrdered('floor2')]
+    .filter(s=>!manualTaken.has(s.key));
+
+  const result={}; // personKey -> [{block,row,num}]
+  let seatIdx=0;
+  autoPersons.forEach(p=>{
+    const ct=parseInt(getCt(p))||1;
+    const assigned=[];
+    for(let i=0;i<ct&&seatIdx<allSeats.length;i++,seatIdx++){
+      assigned.push(allSeats[seatIdx]);
+    }
+    result[p.key]=assigned;
+  });
+  return result;
+}
+
 function renderSeatingChart() {
   if(!S.seatLayout) return;
   const inner=document.getElementById('seatingInner');
@@ -973,15 +1057,22 @@ function renderSeatingChart() {
 
   // 지정 배정 맵: "block|row|num" -> personKey
   const manualMap={};
-  const autoKeys=new Set();
+  const autoMap={}; // "block|row|num" -> personKey (임의배정)
   const allPersons=getAllPersons();
+
+  // 임의배정 좌석 계산
+  const autoSeats=calcAutoSeats();
+  Object.entries(autoSeats).forEach(([pKey,seats])=>{
+    seats.forEach(s=>{ autoMap[s.block+'|'+s.row+'|'+s.num]=pKey; });
+  });
+
   allPersons.forEach(p=>{
     if(!S.distributed[p.key]) return;
     const sa=S.seatAssignments[p.key];
-    if(!sa) { autoKeys.add(p.key); return; } // 배정 정보 없으면 임의 처리
+    if(!sa) return;
     const saArr=Array.isArray(sa)?sa:[sa];
-    if(!saArr.length||saArr[0].type==='auto') autoKeys.add(p.key);
-    else saArr.forEach(s=>{ if(s&&s.type==='manual') manualMap[s.block+'|'+s.row+'|'+s.num]=p.key; });
+    if(saArr.length&&saArr[0].type==='manual')
+      saArr.forEach(s=>{ if(s&&s.type==='manual') manualMap[s.block+'|'+s.row+'|'+s.num]=p.key; });
   });
 
   // 선택 관객의 지정 좌석
@@ -1052,6 +1143,11 @@ function renderSeatingChart() {
 function onSeatClick(block, row, num, aidx) {
   const sk=block+'|'+row+'|'+num;
   S.currentSeatKey=sk;
+  // 그룹 선택 모드: 빈 좌석만 토글
+  if(S.groupSelectMode&&!S.specialSeats[sk]&&aidx<0) {
+    toggleGroupSeat(sk);
+    return;
+  }
   const special=S.specialSeats[sk];
   const modal=document.getElementById('seatModal');
   const body=document.getElementById('seatModalBody');
@@ -1095,7 +1191,16 @@ function onSeatClick(block, row, num, aidx) {
       vipBtn.style.display='none'; blockBtn.style.display='none'; clearBtn.style.display='none';
     }
   } else {
-    html=`<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px;">빈 좌석입니다</div>`;
+    // 그룹 선택 모드 체크
+    const isGroupMode=S.groupSelectMode&&S.groupSelected.size>0;
+    html=`<div style="color:var(--text3);font-size:13px;text-align:center;padding:12px 0 8px;">빈 좌석입니다</div>
+    <div style="background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:10px;margin-bottom:8px;font-size:12px;color:var(--text2);">
+      💡 여러 좌석을 함께 VIP·사석으로 지정하려면<br>
+      <strong style="color:#93c5fd;">그룹 선택 모드</strong>를 사용하세요
+    </div>
+    <button onclick="startGroupSelect('${sk}')" style="width:100%;padding:8px;border:1px solid #3b82f6;border-radius:6px;background:rgba(59,130,246,0.15);color:#93c5fd;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:4px;">
+      🔲 이 좌석 포함 그룹 선택 시작
+    </button>`;
     vipBtn.style.display=''; vipBtn.textContent='⭐ VIP 지정';
     blockBtn.style.display=''; blockBtn.textContent='🚫 사석 지정';
     clearBtn.style.display='none';
@@ -1148,8 +1253,20 @@ function clearSeatSpecial() {
 
 function confirmVip() {
   const name=document.getElementById('vipNameInput').value.trim();
-  doSetVip(name);
-  closeVipModal();
+  if(S._pendingGroupVip) {
+    S._pendingGroupVip=false;
+    S.groupSelected.forEach(sk => {
+      S.specialSeats[sk]={type:'vip',name:name};
+      addExtraPerson(sk,'vip',name||'VIP');
+    });
+    saveData('specialSeats',S.specialSeats);
+    cancelGroupSelect();
+    closeVipModal();
+    renderSeatingChart(); updateAll();
+  } else {
+    doSetVip(name);
+    closeVipModal();
+  }
 }
 function closeVipModal() { document.getElementById('vipNameModal').style.display='none'; }
 
@@ -1193,6 +1310,62 @@ function removeExtraPerson(seatKey) {
   saveData('extraPersons',S.extraPersons);
   saveData('distributed',S.distributed);
   saveData('seatAssignments',S.seatAssignments);
+}
+
+// ===== 그룹 선택 (배포현황에서 여러 좌석 VIP/사석 지정) =====
+function startGroupSelect(firstSeatKey) {
+  S.groupSelectMode = true;
+  S.groupSelected = new Set([firstSeatKey]);
+  closeSeatModal();
+  renderSeatingChart();
+  // 안내 배너 표시
+  const banner = document.getElementById('groupSelectBanner');
+  if(banner) {
+    banner.style.display='block';
+    document.getElementById('groupCount').textContent = S.groupSelected.size;
+  }
+}
+
+function toggleGroupSeat(sk) {
+  if(!S.groupSelectMode) return false;
+  if(S.groupSelected.has(sk)) S.groupSelected.delete(sk);
+  else S.groupSelected.add(sk);
+  document.getElementById('groupCount').textContent = S.groupSelected.size;
+  renderSeatingChart();
+  return true;
+}
+
+function applyGroupSpecial(type) {
+  if(!S.groupSelected.size) return;
+  showConfirm(
+    type==='vip'?'⭐ 그룹 VIP 지정':'🚫 그룹 사석 지정',
+    S.groupSelected.size+'개 좌석을 '+(type==='vip'?'VIP':'사석')+'으로 지정합니다.',
+    () => {
+      if(type==='vip') {
+        // VIP는 이름 입력
+        document.getElementById('vipSeatLabel').textContent = S.groupSelected.size+'개 좌석 (그룹)';
+        document.getElementById('vipNameInput').value='';
+        document.getElementById('vipNameModal').style.display='flex';
+        S._pendingGroupVip = true;
+      } else {
+        S.groupSelected.forEach(sk => {
+          S.specialSeats[sk]={type:'blocked'};
+          addExtraPerson(sk,'blocked','사석');
+        });
+        saveData('specialSeats',S.specialSeats);
+        cancelGroupSelect();
+        renderSeatingChart(); updateAll();
+      }
+    }
+  );
+}
+
+function cancelGroupSelect() {
+  S.groupSelectMode=false;
+  S.groupSelected=new Set();
+  const banner=document.getElementById('groupSelectBanner');
+  if(banner) banner.style.display='none';
+  renderSeatingChart();
 }
 
 // ===== 전체 초기화 =====
