@@ -402,8 +402,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div style="font-size:10px;color:var(--text3);text-align:right;" id="st-pct">0% 배부 완료</div>
   </div>
 
-  <!-- 전체 초기화 -->
-  <div class="card" style="border-color:rgba(239,68,68,0.3);">
+</div>
+
+  <!-- 전체 초기화 (upload-grid 밖) -->
+  <div class="card" style="border-color:rgba(239,68,68,0.3);margin-top:0;">
     <div class="card-title" style="color:var(--red);">⚠️ 데이터 초기화</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6;">
       배부 기록, VIP·사석 지정, 좌석 배정을 모두 초기화합니다.<br>
@@ -411,7 +413,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
     <button class="btn btn-danger" onclick="resetAllData()" style="width:100%;">🗑️ 전체 초기화</button>
   </div>
-</div>
 
 <!-- 좌석 정보/VIP·사석 지정 모달 -->
 <div class="modal-wrap" id="seatModal" style="display:none;">
