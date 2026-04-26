@@ -337,6 +337,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="btn btn-danger" onclick="resetAllData()" style="width:100%;">🗑️ 전체 초기화</button>
   </div>
 
+  <!-- D블록 긴급 패치 -->
+  <div class="card" style="border-color:rgba(139,92,246,0.3);margin-top:0;" id="patchCard">
+    <div class="card-title" style="color:#a78bfa;">🔧 좌석배치도 재적용</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.6;">
+      좌석배치도가 올바르지 않을 때 사용하세요.<br>현재 저장된 좌석 데이터를 정확한 값으로 덮어씁니다.
+    </div>
+    <button class="btn" onclick="patchSeatLayout()" style="width:100%;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;">🔧 좌석배치도 재적용</button>
+    <div id="patchMsg" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+
 
 </div>
 
@@ -1244,6 +1254,42 @@ function cancelGroupSelect() {
   const outer=document.getElementById('seatingOuter');
   if(outer) outer.classList.remove('group-mode');
   renderSeatingChart();
+}
+
+// ===== 좌석배치도 재적용 =====
+async function patchSeatLayout() {
+  const msgEl = document.getElementById('patchMsg');
+  msgEl.textContent = '⏳ 적용 중...';
+  msgEl.style.color = '#fcd34d';
+  
+  // Python으로 검증된 정확한 전체 좌석 데이터
+  try {
+    // seatLayout 전체를 Firebase에서 읽어서 D블록만 교체
+    if (!S.seatLayout) {
+      msgEl.textContent = '❌ 좌석배치도를 먼저 업로드해주세요';
+      msgEl.style.color = '#fca5a5';
+      return;
+    }
+    
+    // D블록 2층 행6~13을 10좌석으로 교체
+    const correctD2 = {"1": [1, 2, 3, 4, 5, 6, 7, 8, 9], "2": [1, 2, 3, 4, 5, 6, 7, 8, 9], "3": [1, 2, 3, 4, 5, 6, 7, 8, 9], "4": [1, 2, 3, 4, 5, 6, 7, 8, 9], "5": [1, 2, 3, 4, 5, 6, 7, 8, 9], "6": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "7": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "8": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "9": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "10": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "11": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "12": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "13": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "14": [1, 2, 3, 4, 5, 6, 7, 8, 9], "15": [1, 2, 3, 4, 5, 6, 7, 8, 9], "16": [1, 2, 3, 4, 5, 6, 7, 8, 9], "17": [1, 2, 3, 4, 5, 6, 7, 8, 9], "18": [1, 2, 3, 4, 5, 6, 7, 8, 9]};
+    const newRows = {};
+    Object.keys(correctD2).forEach(k => { newRows[parseInt(k)] = correctD2[k]; });
+    S.seatLayout.floor2['D블록'].rows = newRows;
+    
+    await window.__fbSave('seatLayout', S.seatLayout);
+    
+    msgEl.textContent = '✅ 재적용 완료! 페이지를 새로고침해주세요.';
+    msgEl.style.color = '#86efac';
+    
+    // 즉시 화면 반영
+    updateAll();
+    if (document.getElementById('status').classList.contains('active')) renderSeatingChart();
+    
+  } catch(e) {
+    msgEl.textContent = '❌ 오류: ' + e.message;
+    msgEl.style.color = '#fca5a5';
+  }
 }
 
 // ===== 전체 초기화 =====
