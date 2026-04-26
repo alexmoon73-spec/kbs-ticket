@@ -642,54 +642,76 @@ setupUpload('seatBox','seatFile', async file => {
     const rowMap={};
     rows.forEach(r=>rowMap[r.rowNum]=r.cells);
     const layout={floor1:{},floor2:{}};
+    // ── 1층 파싱 ──
     const defs1=[
-      {name:'A블록',rowCol:'Q', seatCols:['B','C','D','E','F','G','H','I','J','K','L','M','N','O','P'],align:'right'},
-      {name:'B블록',rowCol:'AB',seatCols:['R','S','T','U','V','W','X','Y','Z','AA'],align:'center'},
-      {name:'C블록',rowCol:'AL',seatCols:['AC','AD','AE','AF','AG','AH','AI','AJ','AK'],align:'center'},
-      {name:'D블록',rowCol:'AW',seatCols:['AN','AO','AP','AQ','AR','AS','AT','AU','AV'],align:'center'},
-      {name:'E블록',rowCol:'AW',seatCols:['AX','AY','AZ','BA','BB','BC','BD','BE','BF','BG','BH','BI'],align:'left'}
+      {name:'A블록',rowCol:'Q',  lo:'B', hi:'P', align:'right'},
+      {name:'B블록',rowCol:'AB', lo:'R', hi:'AA', align:'center'},
+      {name:'C블록',rowCol:'AL', lo:'AC',hi:'AK', align:'center'},
+      {name:'D블록',rowCol:'AW', lo:'AN',hi:'AV', align:'center'},
+      {name:'E블록',rowCol:'AW', lo:'AX',hi:'BI', align:'left'}
     ];
     defs1.forEach(d=>layout.floor1[d.name]={rows:{},align:d.align,name:d.name});
-    for(let rn=10;rn<=36;rn++){
+    function cn(col){let n=0;for(let i=0;i<col.length;i++)n=n*26+col.charCodeAt(i)-64;return n;}
+    for(let rn=10;rn<=37;rn++){
       if(!rowMap[rn]) continue;
       defs1.forEach(def=>{
         const rowNum=rowMap[rn][def.rowCol];
         if(typeof rowNum!=='number'||rowNum<1||rowNum>30) return;
-        const seats=def.seatCols.filter(c=>typeof rowMap[rn][c]==='number'&&rowMap[rn][c]>=1).map(c=>rowMap[rn][c]);
+        const seats=Object.entries(rowMap[rn])
+          .filter(([c,v])=>cn(def.lo)<=cn(c)&&cn(c)<=cn(def.hi)&&typeof v==='number'&&v>=1)
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
         if(seats.length) layout.floor1[def.name].rows[rowNum]=seats;
       });
     }
+    // ── 2층 A블록: 행번호는 C열, 좌석은 D열 이후 ──
     layout.floor2['A블록']={rows:{},align:'right',name:'A블록'};
     layout.floor2['B블록']={rows:{},align:'center',name:'B블록'};
     layout.floor2['C블록']={rows:{},align:'center',name:'C블록'};
     layout.floor2['D블록']={rows:{},align:'center',name:'D블록'};
     layout.floor2['E블록']={rows:{},align:'left',name:'E블록'};
+    // 2층 A블록 (row39~56: C열=행번호, D~Q=좌석)
     for(let rn=39;rn<=56;rn++){
       if(!rowMap[rn]) continue;
       const row=rowMap[rn];
-      const a=row['A'];
-      if(typeof a==='number'&&a>=1&&a<=20){
-        const s=['B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R'].filter(c=>typeof row[c]==='number'&&row[c]>=1).map(c=>row[c]);
-        if(s.length) layout.floor2['A블록'].rows[a]=s;
+      // A행번호: A열(row39~41) 또는 C열(row42~56)
+      const aRow = typeof row['A']==='number' ? row['A'] : (typeof row['C']==='number'&&row['C']>=1&&row['C']<=25?row['C']:null);
+      if(aRow!==null){
+        const lo=typeof row['A']==='number'?'B':'D';
+        const seats=Object.entries(row)
+          .filter(([c,v])=>cn(lo)<=cn(c)&&cn(c)<=cn('Q')&&typeof v==='number'&&v>=1&&v<=20)
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+        if(seats.length&&!layout.floor2['A블록'].rows[aRow]) layout.floor2['A블록'].rows[aRow]=seats;
       }
+      // 2층 E블록 (BH=행번호, BI~BJ)
       const bh=row['BH'];
-      if(typeof bh==='number'&&bh>=1){
-        const s=['BI','BJ','BK','BL','BM'].filter(c=>typeof row[c]==='number'&&row[c]>=1).map(c=>row[c]);
-        if(s.length) layout.floor2['E블록'].rows[bh]=s;
+      if(typeof bh==='number'&&bh>=1&&bh<=25){
+        const seats=Object.entries(row)
+          .filter(([c,v])=>cn('BI')<=cn(c)&&cn(c)<=cn('BL')&&typeof v==='number'&&v>=1)
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+        if(seats.length) layout.floor2['E블록'].rows[bh]=seats;
       }
     }
-    for(let rn=52;rn<=65;rn++){
+    // 2층 B블록(R~AA, AB=행번호), C블록(AC~AK), D블록(AM~AV, AW=행번호)
+    for(let rn=52;rn<=66;rn++){
       if(!rowMap[rn]) continue;
       const row=rowMap[rn];
       const ab=row['AB'];
-      if(typeof ab==='number'&&ab>=1&&ab<=20){
-        const s=['AC','AD','AE','AF','AG','AH','AI','AJ','AK','AL'].filter(c=>typeof row[c]==='number'&&row[c]>=1&&row[c]<=15).map(c=>row[c]);
-        if(s.length&&!layout.floor2['C블록'].rows[ab]) layout.floor2['C블록'].rows[ab]=s;
+      if(typeof ab==='number'&&ab>=1&&ab<=25){
+        const seats=Object.entries(row)
+          .filter(([c,v])=>cn('R')<=cn(c)&&cn(c)<=cn('AA')&&typeof v==='number'&&v>=1)
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+        if(seats.length&&!layout.floor2['B블록'].rows[ab]) layout.floor2['B블록'].rows[ab]=seats;
+        const seatsC=Object.entries(row)
+          .filter(([c,v])=>cn('AC')<=cn(c)&&cn(c)<=cn('AK')&&typeof v==='number'&&v>=1)
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+        if(seatsC.length&&!layout.floor2['C블록'].rows[ab]) layout.floor2['C블록'].rows[ab]=seatsC;
       }
       const aw=row['AW'];
-      if(typeof aw==='number'&&aw>=1&&aw<=20){
-        const s=['AX','AY','AZ','BA','BB','BC','BD'].filter(c=>typeof row[c]==='number'&&row[c]>=1&&row[c]<=15).map(c=>row[c]);
-        if(s.length&&!layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw]=s;
+      if(typeof aw==='number'&&aw>=1&&aw<=25){
+        const seats=Object.entries(row)
+          .filter(([c,v])=>cn('AM')<=cn(c)&&cn(c)<=cn('AV')&&typeof v==='number'&&v>=1)
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+        if(seats.length&&!layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw]=seats;
       }
     }
     S.seatLayout=layout;
