@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>KBS 티켓 배부 관리</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-
+<!-- Firebase compat SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyCknTRjGkE3jcCOWuyEUc17Yta835aNRpg",
   authDomain:        "kbs-ticket.firebaseapp.com",
@@ -24,27 +24,24 @@ window.__fbReady = false;
 
 function initFirebase() {
   try {
-    const app = initializeApp(FIREBASE_CONFIG);
-    db = getDatabase(app);
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.database();
     window.__fbReady = true;
-    window.__fbDb = db;
-    window.__fbRef = ref;
-    window.__fbSet = set;
-    window.__fbOnValue = onValue;
     document.getElementById('fbBanner').textContent = '🔥 Firebase 실시간 연동 중 — 모든 기기가 동기화됩니다';
     document.getElementById('fbBanner').className = 'fb-banner fb-ok';
     showLoading('Firebase 데이터 동기화 중...');
     startListeners();
     setTimeout(hideLoading, 6000);
   } catch(e) {
-    document.getElementById('fbBanner').textContent = '💾 로컬 모드 (Firebase 연결 실패)';
+    console.error('Firebase 초기화 실패:', e);
+    document.getElementById('fbBanner').textContent = '💾 로컬 모드 (Firebase 연결 실패: ' + e.message + ')';
     document.getElementById('fbBanner').className = 'fb-banner fb-warn';
     hideLoading();
   }
 }
 
 function startListeners() {
-  onValue(ref(db, 'audience'), snap => {
+  db.ref('audience').on('value', snap => {
     const val = snap.val();
     if (val) {
       window.__S.audience = Array.isArray(val) ? val : Object.values(val).filter(x=>x&&x.key);
@@ -52,22 +49,21 @@ function startListeners() {
     }
     hideLoading();
   });
-  onValue(ref(db, 'distributed'), snap => {
+  db.ref('distributed').on('value', snap => {
     window.__S.distributed = snap.val() || {};
     hideLoading(); updateAll();
     if (window.__S.selectedKey) { const p = window.__S.audience.find(x=>x.key===window.__S.selectedKey); if(p) updatePersonCard(p); }
   });
-  onValue(ref(db, 'seatLayout'), snap => {
+  db.ref('seatLayout').on('value', snap => {
     const val = snap.val();
     if (val) {
       window.__S.seatLayout = normalizeSeatLayout(val);
       hideLoading(); updateAll();
     }
   });
-  onValue(ref(db, 'edits'), snap => { window.__S.edits = snap.val() || {}; updateAll(); });
-  onValue(ref(db, 'seatAssignments'), snap => {
+  db.ref('edits').on('value', snap => { window.__S.edits = snap.val() || {}; updateAll(); });
+  db.ref('seatAssignments').on('value', snap => {
     const raw = snap.val() || {};
-    // 이전 버전 호환: 단일 객체이면 배열로 변환
     const normalized = {};
     Object.keys(raw).forEach(k => {
       const v = raw[k];
@@ -79,20 +75,20 @@ function startListeners() {
     updateAll();
     if (window.__S.selectedKey) { const p = window.__S.audience.find(x=>x.key===window.__S.selectedKey); if(p) updatePersonCard(p); }
   });
-  onValue(ref(db, 'specialSeats'), snap => {
+  db.ref('specialSeats').on('value', snap => {
     window.__S.specialSeats = snap.val() || {};
     updateAll();
     if (document.getElementById('status').classList.contains('active')) renderSeatingChart();
   });
-  onValue(ref(db, 'extraPersons'), snap => {
+  db.ref('extraPersons').on('value', snap => {
     window.__S.extraPersons = snap.val() || {};
     updateAll();
   });
 }
 
 window.__fbSave = async function(path, data) {
-  if (!window.__fbReady) { localSave(); return; }
-  try { await set(ref(db, path), data); } catch(e) { console.error(e); }
+  if (!window.__fbReady || !db) { localSave(); return; }
+  try { await db.ref(path).set(data); } catch(e) { console.error(e); }
   localSave();
 };
 
