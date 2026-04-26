@@ -737,10 +737,13 @@ setupUpload('seatBox','seatFile', async file => {
       const row=rowMap[rn];
       const aw=row['AW'];
       if(typeof aw==='number'&&aw>=1&&aw<=25){
-        const seatsD=Object.entries(row)
-          .filter(([c,v])=>cn('AM')<=cn(c)&&cn(c)<=cn('AU')&&typeof v==='number'&&v>=1&&v<=15)
-          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
-        if(seatsD.length&&!layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw]=seatsD;
+        // D블록: AW파서는 행14~18(row52~56)만 처리 - AM~AU(9좌석)
+        if(aw>=14){
+          const seatsD=Object.entries(row)
+            .filter(([c,v])=>cn('AM')<=cn(c)&&cn(c)<=cn('AU')&&typeof v==='number'&&v>=1&&v<=15)
+            .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+          if(seatsD.length&&!layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw]=seatsD;
+        }
         const seatsE=Object.entries(row)
           .filter(([c,v])=>cn('AX')<=cn(c)&&cn(c)<=cn('BJ')&&typeof v==='number'&&v>=1&&v<=15)
           .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
@@ -779,11 +782,13 @@ setupUpload('seatBox','seatFile', async file => {
           .filter(([c,v])=>cn('AC')<=cn(c)&&cn(c)<=cn('AK')&&typeof v==='number'&&v>=1&&v<=15)
           .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
         if(seatsC.length&&!layout.floor2['C블록'].rows[ab]) layout.floor2['C블록'].rows[ab]=seatsC;
-        // D블록: row52~65에서 AB행번호와 같은 행의 AM~AV
-        const seatsD=Object.entries(row)
-          .filter(([c,v])=>cn('AM')<=cn(c)&&cn(c)<=cn('AV')&&typeof v==='number'&&v>=1&&v<=15)
-          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
-        if(seatsD.length&&!layout.floor2['D블록'].rows[ab]) layout.floor2['D블록'].rows[ab]=seatsD;
+        // D블록: AB파서가 행1~13 전담 (항상 덮어쓰기로 정확한 좌석 수 보장)
+        if(ab<=13){
+          const seatsD=Object.entries(row)
+            .filter(([c,v])=>cn('AM')<=cn(c)&&cn(c)<=cn('AV')&&typeof v==='number'&&v>=1&&v<=15)
+            .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+          if(seatsD.length) layout.floor2['D블록'].rows[ab]=seatsD;
+        }
       }
     }
     S.seatLayout=layout;
