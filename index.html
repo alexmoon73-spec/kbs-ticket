@@ -5,95 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>KBS 티켓 배부 관리</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<!-- Firebase compat SDK -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-<script>
-const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyCknTRjGkE3jcCOWuyEUc17Yta835aNRpg",
-  authDomain:        "kbs-ticket.firebaseapp.com",
-  databaseURL:       "https://kbs-ticket-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId:         "kbs-ticket",
-  storageBucket:     "kbs-ticket.firebasestorage.app",
-  messagingSenderId: "566270075369",
-  appId:             "1:566270075369:web:39353223a4f29b73d06b78"
-};
 
-let db = null;
-window.__fbReady = false;
-
-function initFirebase() {
-  try {
-    firebase.initializeApp(FIREBASE_CONFIG);
-    db = firebase.database();
-    window.__fbReady = true;
-    document.getElementById('fbBanner').textContent = '🔥 Firebase 실시간 연동 중 — 모든 기기가 동기화됩니다';
-    document.getElementById('fbBanner').className = 'fb-banner fb-ok';
-    showLoading('Firebase 데이터 동기화 중...');
-    startListeners();
-    setTimeout(hideLoading, 6000);
-  } catch(e) {
-    console.error('Firebase 초기화 실패:', e);
-    document.getElementById('fbBanner').textContent = '💾 로컬 모드 (Firebase 연결 실패: ' + e.message + ')';
-    document.getElementById('fbBanner').className = 'fb-banner fb-warn';
-    hideLoading();
-  }
-}
-
-function startListeners() {
-  db.ref('audience').on('value', snap => {
-    const val = snap.val();
-    if (val) {
-      window.__S.audience = Array.isArray(val) ? val : Object.values(val).filter(x=>x&&x.key);
-      afterDataLoad();
-    }
-    hideLoading();
-  });
-  db.ref('distributed').on('value', snap => {
-    window.__S.distributed = snap.val() || {};
-    hideLoading(); updateAll();
-    if (window.__S.selectedKey) { const p = window.__S.audience.find(x=>x.key===window.__S.selectedKey); if(p) updatePersonCard(p); }
-  });
-  db.ref('seatLayout').on('value', snap => {
-    const val = snap.val();
-    if (val) {
-      window.__S.seatLayout = normalizeSeatLayout(val);
-      hideLoading(); updateAll();
-    }
-  });
-  db.ref('edits').on('value', snap => { window.__S.edits = snap.val() || {}; updateAll(); });
-  db.ref('seatAssignments').on('value', snap => {
-    const raw = snap.val() || {};
-    const normalized = {};
-    Object.keys(raw).forEach(k => {
-      const v = raw[k];
-      if (Array.isArray(v)) normalized[k] = v;
-      else if (v && typeof v === 'object' && v.type) normalized[k] = [v];
-      else normalized[k] = v;
-    });
-    window.__S.seatAssignments = normalized;
-    updateAll();
-    if (window.__S.selectedKey) { const p = window.__S.audience.find(x=>x.key===window.__S.selectedKey); if(p) updatePersonCard(p); }
-  });
-  db.ref('specialSeats').on('value', snap => {
-    window.__S.specialSeats = snap.val() || {};
-    updateAll();
-    if (document.getElementById('status').classList.contains('active')) renderSeatingChart();
-  });
-  db.ref('extraPersons').on('value', snap => {
-    window.__S.extraPersons = snap.val() || {};
-    updateAll();
-  });
-}
-
-window.__fbSave = async function(path, data) {
-  if (!window.__fbReady || !db) { localSave(); return; }
-  try { await db.ref(path).set(data); } catch(e) { console.error(e); }
-  localSave();
-};
-
-document.addEventListener('DOMContentLoaded', initFirebase);
-</script>
 
 <style>
 :root {
@@ -639,16 +551,16 @@ setupUpload('seatBox','seatFile', async file => {
     rows.forEach(r=>rowMap[r.rowNum]=r.cells);
     const layout={floor1:{},floor2:{}};
     // Python으로 검증된 정확한 좌석 데이터 직접 사용
-    const layout = JSON.parse(JSON.stringify({"floor1":{"A블록":{"rows":{"1":[1,2,3],"2":[1,2,3,4,5,6],"3":[1,2,3,4,5,6,7],"4":[1,2,3,4,5,6,7,8],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9,10],"7":[1,2,3,4,5,6,7,8,9,10,11],"8":[1,2,3,4,5,6,7,8,9,10,11,12],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9,10],"16":[1,2,3,4,5],"17":[1,2,3,4,5],"18":[1,2,3,4,5],"19":[1,2,3,4,5,6],"20":[1,2,3,4,5,6,7],"21":[1,2],"22":[1,2],"23":[1,2],"24":[1,2,3],"25":[1,2,3]},"align":"right","name":"A블록"},"B블록":{"rows":{"1":[1,2,3,4,5,6,7,8,9],"2":[1,2,3,4,5,6,7,8,9],"3":[1,2,3,4,5,6,7,8,9],"4":[1,2,3,4,5,6,7,8,9],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9],"7":[1,2,3,4,5,6,7,8,9],"8":[1,2,3,4,5,6,7,8,9],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8,9],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9],"16":[1,2,3,4,5,6,7,8,9],"17":[1,2,3,4,5,6,7,8,9],"18":[1,2,3,4,5,6,7,8,9],"19":[1,2,3,4,5,6,7,8,9],"20":[1,2,3,4,5,6,7,8,9],"21":[1,2,3,4,5,6,7,8,9],"22":[1,2,3,4,5,6,7,8,9],"23":[1,2,3,4,5,6,7,8,9],"24":[1,2,3,4,5,6,7,8,9],"25":[1,2,3,4,5,6,7,8,9]},"align":"center","name":"B블록"},"C블록":{"rows":{"1":[1,2,3,4,5,6,7,8,9],"2":[1,2,3,4,5,6,7,8,9],"3":[1,2,3,4,5,6,7,8,9],"4":[1,2,3,4,5,6,7,8,9],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9],"7":[1,2,3,4,5,6,7,8,9],"8":[1,2,3,4,5,6,7,8,9],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8,9],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9],"16":[1,2,3,4,5,6,7,8,9],"17":[1,2,3,4,5,6,7,8,9],"18":[1,2,3,4,5,6,7,8,9],"19":[1,2,3,4,5,6,7,8,9],"20":[1,2,3,4,5,6,7,8,9],"21":[1,2,3,4,5,6,7,8,9],"22":[1,2,3,4,5,6,7,8,9],"23":[1,2,3,4,5,6,7,8,9]},"align":"center","name":"C블록"},"D블록":{"rows":{"1":[2,3,4,5,6,7,8,9],"2":[2,3,4,5,6,7,8,9],"3":[2,3,4,5,6,7,8,9],"4":[2,3,4,5,6,7,8,9],"5":[2,3,4,5,6,7,8,9],"6":[2,3,4,5,6,7,8,9],"7":[2,3,4,5,6,7,8,9],"8":[2,3,4,5,6,7,8,9],"9":[2,3,4,5,6,7,8,9],"10":[2,3,4,5,6,7,8,9],"11":[6,3,4,5,6,7,8,9],"12":[2,3,4,5,6,7,8,9],"13":[2,3,4,5,6,7,8,9],"14":[2,3,4,5,6,7,8,9],"15":[2,3,4,5,6,7,8,9],"16":[2,3,4,5,6,7,8,9],"17":[2,3,4,5,6,7,8,9],"18":[2,3,4,5,6,7,8,9],"19":[2,3,4,5,6,7,8,9],"20":[2,3,4,5,6,7,8,9],"21":[2,3,4,5,6,7,8,9],"22":[2,3,4,5,6,7,8,9],"23":[2,3,4,5,6,7,8,9],"24":[2,3,4,5,6,7,8,9],"25":[2,3,4,5,6,7,8,9]},"align":"center","name":"D블록"},"E블록":{"rows":{"1":[1,2,3],"2":[1,2,3,4,5,6],"3":[1,2,3,4,5,6,7],"4":[1,2,3,4,5,6,7,8],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9,10],"7":[1,2,3,4,5,6,7,8,9,10,11],"8":[1,2,3,4,5,6,7,8,9,10,11,12],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9,10],"16":[1,2,3,4,5],"17":[1,2,3,4,5],"18":[1,2,3,4,5],"19":[1,2,3,4,5,6],"20":[1,2,3,4,5,6,7],"21":[1,2],"22":[1,2],"23":[1,2],"24":[1,2,3],"25":[1,2,3]},"align":"left","name":"E블록"}},"floor2":{"A블록":{"rows":{"1":[1,2,3,4],"2":[1,2,3,4],"3":[1,2,3,4],"4":[1,2],"5":[1,2,3,4,5,6,7],"6":[1,2,3,4,5,6,7],"7":[1,2,3],"8":[1,2,3],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4],"12":[1,2,3,4],"13":[1,2,3,4,5],"14":[1,2,3,4,5,6],"15":[1,2,3,4,5,6,7],"16":[1,2,3,4,5,6,7],"17":[1,2],"18":[1,2]},"align":"right","name":"A블록"},"B블록":{"rows":{"1":[1,2,3,4,5,6,7,8,9],"2":[1,2,3,4,5,6,7,8,9],"3":[1,2,3,4,5,6,7,8,9],"4":[1,2,3,4,5,6,7,8,9],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9,10],"7":[1,2,3,4,5,6,7,8,9,10],"8":[1,2,3,4,5,6,7,8,9,10],"9":[1,2,3,4,5,6,7,8,9,10],"10":[1,2,3,4,5,6,7,8,9,10],"11":[1,2,3,4,5,6,7,8,9,10],"12":[1,2,3,4,5,6,7,8,9,10],"13":[1,2,3,4,5,6,7,8,9,10]},"align":"center","name":"B블록"},"C블록":{"rows":{"1":[1,2,3,4,5,6,7,8],"3":[1,2,3,4,5,6],"4":[1,2,3,4,5,6],"5":[1,2,3,4,5,6],"6":[1,2,3,4,5,6,7,8,9],"7":[1,2,3,4,5,6,7,8,9],"8":[1,2,3,4,5,6,7,8,9],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8,9]},"align":"center","name":"C블록"},"D블록":{"rows":{"1":[1,2,3,4,5,6,7,8,9],"2":[1,2,3,4,5,6,7,8,9],"3":[1,2,3,4,5,6,7,8,9],"4":[1,2,3,4,5,6,7,8,9],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9,10],"7":[1,2,3,4,5,6,7,8,9,10],"8":[1,2,3,4,5,6,7,8,9,10],"9":[1,2,3,4,5,6,7,8,9,10],"10":[1,2,3,4,5,6,7,8,9,10],"11":[1,2,3,4,5,6,7,8,9,10],"12":[1,2,3,4,5,6,7,8,9,10],"13":[1,2,3,4,5,6,7,8,9,10],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9],"16":[1,2,3,4,5,6,7,8,9],"17":[1,2,3,4,5,6,7,8,9],"18":[1,2,3,4,5,6,7,8,9]},"align":"center","name":"D블록"},"E블록":{"rows":{"1":[1,2,3,4],"2":[1,2,3,4],"3":[1,2,3,4],"4":[1,2],"5":[1,2,3,4,5,6,7],"6":[1,2,3,4,5,6,7],"7":[1,2,3],"8":[1,2,3],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4],"12":[1,2,3,4],"13":[1,2,3,4,5],"14":[1,2,3,4,5,6],"15":[1,2,3,4,5,6,7],"16":[1,2,3,4,5,6,7],"17":[1,2],"18":[1,2]},"align":"left","name":"E블록"}}}));
+    const _layout = JSON.parse(JSON.stringify({"floor1":{"A블록":{"rows":{"1":[1,2,3],"2":[1,2,3,4,5,6],"3":[1,2,3,4,5,6,7],"4":[1,2,3,4,5,6,7,8],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9,10],"7":[1,2,3,4,5,6,7,8,9,10,11],"8":[1,2,3,4,5,6,7,8,9,10,11,12],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9,10],"16":[1,2,3,4,5],"17":[1,2,3,4,5],"18":[1,2,3,4,5],"19":[1,2,3,4,5,6],"20":[1,2,3,4,5,6,7],"21":[1,2],"22":[1,2],"23":[1,2],"24":[1,2,3],"25":[1,2,3]},"align":"right","name":"A블록"},"B블록":{"rows":{"1":[1,2,3,4,5,6,7,8,9],"2":[1,2,3,4,5,6,7,8,9],"3":[1,2,3,4,5,6,7,8,9],"4":[1,2,3,4,5,6,7,8,9],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9],"7":[1,2,3,4,5,6,7,8,9],"8":[1,2,3,4,5,6,7,8,9],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8,9],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9],"16":[1,2,3,4,5,6,7,8,9],"17":[1,2,3,4,5,6,7,8,9],"18":[1,2,3,4,5,6,7,8,9],"19":[1,2,3,4,5,6,7,8,9],"20":[1,2,3,4,5,6,7,8,9],"21":[1,2,3,4,5,6,7,8,9],"22":[1,2,3,4,5,6,7,8,9],"23":[1,2,3,4,5,6,7,8,9],"24":[1,2,3,4,5,6,7,8,9],"25":[1,2,3,4,5,6,7,8,9]},"align":"center","name":"B블록"},"C블록":{"rows":{"1":[1,2,3,4,5,6,7,8,9],"2":[1,2,3,4,5,6,7,8,9],"3":[1,2,3,4,5,6,7,8,9],"4":[1,2,3,4,5,6,7,8,9],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9],"7":[1,2,3,4,5,6,7,8,9],"8":[1,2,3,4,5,6,7,8,9],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8,9],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9],"16":[1,2,3,4,5,6,7,8,9],"17":[1,2,3,4,5,6,7,8,9],"18":[1,2,3,4,5,6,7,8,9],"19":[1,2,3,4,5,6,7,8,9],"20":[1,2,3,4,5,6,7,8,9],"21":[1,2,3,4,5,6,7,8,9],"22":[1,2,3,4,5,6,7,8,9],"23":[1,2,3,4,5,6,7,8,9]},"align":"center","name":"C블록"},"D블록":{"rows":{"1":[2,3,4,5,6,7,8,9],"2":[2,3,4,5,6,7,8,9],"3":[2,3,4,5,6,7,8,9],"4":[2,3,4,5,6,7,8,9],"5":[2,3,4,5,6,7,8,9],"6":[2,3,4,5,6,7,8,9],"7":[2,3,4,5,6,7,8,9],"8":[2,3,4,5,6,7,8,9],"9":[2,3,4,5,6,7,8,9],"10":[2,3,4,5,6,7,8,9],"11":[6,3,4,5,6,7,8,9],"12":[2,3,4,5,6,7,8,9],"13":[2,3,4,5,6,7,8,9],"14":[2,3,4,5,6,7,8,9],"15":[2,3,4,5,6,7,8,9],"16":[2,3,4,5,6,7,8,9],"17":[2,3,4,5,6,7,8,9],"18":[2,3,4,5,6,7,8,9],"19":[2,3,4,5,6,7,8,9],"20":[2,3,4,5,6,7,8,9],"21":[2,3,4,5,6,7,8,9],"22":[2,3,4,5,6,7,8,9],"23":[2,3,4,5,6,7,8,9],"24":[2,3,4,5,6,7,8,9],"25":[2,3,4,5,6,7,8,9]},"align":"center","name":"D블록"},"E블록":{"rows":{"1":[1,2,3],"2":[1,2,3,4,5,6],"3":[1,2,3,4,5,6,7],"4":[1,2,3,4,5,6,7,8],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9,10],"7":[1,2,3,4,5,6,7,8,9,10,11],"8":[1,2,3,4,5,6,7,8,9,10,11,12],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9,10],"16":[1,2,3,4,5],"17":[1,2,3,4,5],"18":[1,2,3,4,5],"19":[1,2,3,4,5,6],"20":[1,2,3,4,5,6,7],"21":[1,2],"22":[1,2],"23":[1,2],"24":[1,2,3],"25":[1,2,3]},"align":"left","name":"E블록"}},"floor2":{"A블록":{"rows":{"1":[1,2,3,4],"2":[1,2,3,4],"3":[1,2,3,4],"4":[1,2],"5":[1,2,3,4,5,6,7],"6":[1,2,3,4,5,6,7],"7":[1,2,3],"8":[1,2,3],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4],"12":[1,2,3,4],"13":[1,2,3,4,5],"14":[1,2,3,4,5,6],"15":[1,2,3,4,5,6,7],"16":[1,2,3,4,5,6,7],"17":[1,2],"18":[1,2]},"align":"right","name":"A블록"},"B블록":{"rows":{"1":[1,2,3,4,5,6,7,8,9],"2":[1,2,3,4,5,6,7,8,9],"3":[1,2,3,4,5,6,7,8,9],"4":[1,2,3,4,5,6,7,8,9],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9,10],"7":[1,2,3,4,5,6,7,8,9,10],"8":[1,2,3,4,5,6,7,8,9,10],"9":[1,2,3,4,5,6,7,8,9,10],"10":[1,2,3,4,5,6,7,8,9,10],"11":[1,2,3,4,5,6,7,8,9,10],"12":[1,2,3,4,5,6,7,8,9,10],"13":[1,2,3,4,5,6,7,8,9,10]},"align":"center","name":"B블록"},"C블록":{"rows":{"1":[1,2,3,4,5,6,7,8],"3":[1,2,3,4,5,6],"4":[1,2,3,4,5,6],"5":[1,2,3,4,5,6],"6":[1,2,3,4,5,6,7,8,9],"7":[1,2,3,4,5,6,7,8,9],"8":[1,2,3,4,5,6,7,8,9],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4,5,6,7,8,9],"12":[1,2,3,4,5,6,7,8,9],"13":[1,2,3,4,5,6,7,8,9]},"align":"center","name":"C블록"},"D블록":{"rows":{"1":[1,2,3,4,5,6,7,8,9],"2":[1,2,3,4,5,6,7,8,9],"3":[1,2,3,4,5,6,7,8,9],"4":[1,2,3,4,5,6,7,8,9],"5":[1,2,3,4,5,6,7,8,9],"6":[1,2,3,4,5,6,7,8,9,10],"7":[1,2,3,4,5,6,7,8,9,10],"8":[1,2,3,4,5,6,7,8,9,10],"9":[1,2,3,4,5,6,7,8,9,10],"10":[1,2,3,4,5,6,7,8,9,10],"11":[1,2,3,4,5,6,7,8,9,10],"12":[1,2,3,4,5,6,7,8,9,10],"13":[1,2,3,4,5,6,7,8,9,10],"14":[1,2,3,4,5,6,7,8,9],"15":[1,2,3,4,5,6,7,8,9],"16":[1,2,3,4,5,6,7,8,9],"17":[1,2,3,4,5,6,7,8,9],"18":[1,2,3,4,5,6,7,8,9]},"align":"center","name":"D블록"},"E블록":{"rows":{"1":[1,2,3,4],"2":[1,2,3,4],"3":[1,2,3,4],"4":[1,2],"5":[1,2,3,4,5,6,7],"6":[1,2,3,4,5,6,7],"7":[1,2,3],"8":[1,2,3],"9":[1,2,3,4,5,6,7,8,9],"10":[1,2,3,4,5,6,7,8,9],"11":[1,2,3,4],"12":[1,2,3,4],"13":[1,2,3,4,5],"14":[1,2,3,4,5,6],"15":[1,2,3,4,5,6,7],"16":[1,2,3,4,5,6,7],"17":[1,2],"18":[1,2]},"align":"left","name":"E블록"}}}));
     // floor1/floor2 rows의 키를 숫자로 변환
     ['floor1','floor2'].forEach(fl=>{
-      Object.keys(layout[fl]).forEach(bname=>{
+      Object.keys(_layout[fl]).forEach(bname=>{
         const newRows={};
-        Object.keys(layout[fl][bname].rows).forEach(k=>{newRows[parseInt(k)]=layout[fl][bname].rows[k];});
-        layout[fl][bname].rows=newRows;
+        Object.keys(_layout[fl][bname].rows).forEach(k=>{newRows[parseInt(k)]=_layout[fl][bname].rows[k];});
+        _layout[fl][bname].rows=newRows;
       });
     });
-    S.seatLayout=layout;
+    S.seatLayout=_layout;
     saveData('seatLayout',layout);
     let totalSeats=0;
     ['floor1','floor2'].forEach(fl=>Object.values(layout[fl]).forEach(blk=>Object.values(blk.rows).forEach(s=>totalSeats+=s.length)));
@@ -1438,6 +1350,97 @@ if(S.seatLayout) {
   document.getElementById('seatChartCard').style.display='block';
 }
 updateAll();
+</script>
+<!-- Firebase compat SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyCknTRjGkE3jcCOWuyEUc17Yta835aNRpg",
+  authDomain:        "kbs-ticket.firebaseapp.com",
+  databaseURL:       "https://kbs-ticket-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "kbs-ticket",
+  storageBucket:     "kbs-ticket.firebasestorage.app",
+  messagingSenderId: "566270075369",
+  appId:             "1:566270075369:web:39353223a4f29b73d06b78"
+};
+
+let db = null;
+window.__fbReady = false;
+
+function initFirebase() {
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.database();
+    window.__fbReady = true;
+    document.getElementById('fbBanner').textContent = '🔥 Firebase 실시간 연동 중 — 모든 기기가 동기화됩니다';
+    document.getElementById('fbBanner').className = 'fb-banner fb-ok';
+    const fbOverlay=document.getElementById('loadingOverlay');
+    if(fbOverlay){fbOverlay.style.display='flex';const lt=document.getElementById('loadingText');if(lt)lt.textContent='Firebase 데이터 동기화 중...';}
+    startListeners();
+    setTimeout(()=>{const el=document.getElementById('loadingOverlay');if(el)el.style.display='none';}, 6000);
+  } catch(e) {
+    console.error('Firebase 초기화 실패:', e);
+    document.getElementById('fbBanner').textContent = '💾 로컬 모드 (Firebase 연결 실패: ' + e.message + ')';
+    document.getElementById('fbBanner').className = 'fb-banner fb-warn';
+    hideLoading();
+  }
+}
+
+function startListeners() {
+  db.ref('audience').on('value', snap => {
+    const val = snap.val();
+    if (val) {
+      window.__S.audience = Array.isArray(val) ? val : Object.values(val).filter(x=>x&&x.key);
+      if(typeof afterDataLoad==='function')afterDataLoad();
+    }
+    {const el=document.getElementById('loadingOverlay');if(el)el.style.display='none';}
+  });
+  db.ref('distributed').on('value', snap => {
+    window.__S.distributed = snap.val() || {};
+    {const el=document.getElementById('loadingOverlay');if(el)el.style.display='none';} if(typeof updateAll==='function')updateAll();
+    if (window.__S.selectedKey) { const p = window.__S.audience.find(x=>x.key===window.__S.selectedKey); if(p) updatePersonCard(p); }
+  });
+  db.ref('seatLayout').on('value', snap => {
+    const val = snap.val();
+    if (val) {
+      window.__S.seatLayout = (typeof normalizeSeatLayout==='function')?normalizeSeatLayout(val):val;
+      {const el=document.getElementById('loadingOverlay');if(el)el.style.display='none';} if(typeof updateAll==='function')updateAll();
+    }
+  });
+  db.ref('edits').on('value', snap => { window.__S.edits = snap.val() || {}; if(typeof updateAll==='function')updateAll(); });
+  db.ref('seatAssignments').on('value', snap => {
+    const raw = snap.val() || {};
+    const normalized = {};
+    Object.keys(raw).forEach(k => {
+      const v = raw[k];
+      if (Array.isArray(v)) normalized[k] = v;
+      else if (v && typeof v === 'object' && v.type) normalized[k] = [v];
+      else normalized[k] = v;
+    });
+    window.__S.seatAssignments = normalized;
+    if(typeof updateAll==='function')updateAll();
+    if (window.__S.selectedKey) { const p = window.__S.audience.find(x=>x.key===window.__S.selectedKey); if(p) updatePersonCard(p); }
+  });
+  db.ref('specialSeats').on('value', snap => {
+    window.__S.specialSeats = snap.val() || {};
+    if(typeof updateAll==='function')updateAll();
+    if (document.getElementById('status').classList.contains('active')) renderSeatingChart();
+  });
+  db.ref('extraPersons').on('value', snap => {
+    window.__S.extraPersons = snap.val() || {};
+    if(typeof updateAll==='function')updateAll();
+  });
+}
+
+window.__fbSave = async function(path, data) {
+  if (!window.__fbReady || !db) { localSave(); return; }
+  try { await db.ref(path).set(data); } catch(e) { console.error(e); }
+  localSave();
+};
+
+// DOMContentLoaded 대신 즉시 실행 (HTML 파싱 후 스크립트 실행되므로 안전)
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',initFirebase);}else{initFirebase();}
 </script>
 </body>
 </html>
