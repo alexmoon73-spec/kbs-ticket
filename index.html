@@ -730,12 +730,45 @@ setupUpload('seatBox','seatFile', async file => {
       }
     }
 
+    // 2층 D/E블록: AW=행번호, row47~56
+    // D블록 좌석: AM~AU, E블록 좌석: AX~BJ
+    for(let rn=47;rn<=56;rn++){
+      if(!rowMap[rn]) continue;
+      const row=rowMap[rn];
+      const aw=row['AW'];
+      if(typeof aw==='number'&&aw>=1&&aw<=25){
+        const seatsD=Object.entries(row)
+          .filter(([c,v])=>cn('AM')<=cn(c)&&cn(c)<=cn('AU')&&typeof v==='number'&&v>=1&&v<=15)
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+        if(seatsD.length&&!layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw]=seatsD;
+        const seatsE=Object.entries(row)
+          .filter(([c,v])=>cn('AX')<=cn(c)&&cn(c)<=cn('BJ')&&typeof v==='number'&&v>=1&&v<=15)
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+        if(seatsE.length&&!layout.floor2['E블록'].rows[aw]) layout.floor2['E블록'].rows[aw]=seatsE;
+      }
+    }
+    // E블록 추가: BC=행번호(row43~46), BH=행번호(row39~42)
+    const e2extra=[
+      {rn:39,rn2:42, eCol:'BH', sLo:'BI', sHi:'BJ'},
+      {rn:43,rn2:44, eCol:'BC', sLo:'BD', sHi:'BJ'},
+      {rn:45,rn2:46, eCol:'BC', sLo:'BD', sHi:'BF'},
+    ];
+    for(const def of e2extra){
+      for(let rn=def.rn;rn<=def.rn2;rn++){
+        if(!rowMap[rn]) continue;
+        const rowNum=rowMap[rn][def.eCol];
+        if(typeof rowNum!=='number'||rowNum<1||rowNum>25) continue;
+        const seats=Object.entries(rowMap[rn])
+          .filter(([c,v])=>cn(def.sLo)<=cn(c)&&cn(c)<=cn(def.sHi)&&typeof v==='number'&&v>=1&&v<=20&&c!==def.eCol)
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+        if(seats.length&&!layout.floor2['E블록'].rows[rowNum]) layout.floor2['E블록'].rows[rowNum]=seats;
+      }
+    }
     // 2층 B블록(AB=행번호, R~AA=좌석), C블록(AB=행번호, AC~AK=좌석)
-    // 2층 D블록(AW=행번호, AM~AV=좌석) - row47~65
+    // D블록 추가: AB와 같은 행, AM~AV (row52~65)
     for(let rn=47;rn<=66;rn++){
       if(!rowMap[rn]) continue;
       const row=rowMap[rn];
-      // B/C블록
       const ab=row['AB'];
       if(typeof ab==='number'&&ab>=1&&ab<=20){
         const seatsB=Object.entries(row)
@@ -746,14 +779,11 @@ setupUpload('seatBox','seatFile', async file => {
           .filter(([c,v])=>cn('AC')<=cn(c)&&cn(c)<=cn('AK')&&typeof v==='number'&&v>=1&&v<=15)
           .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
         if(seatsC.length&&!layout.floor2['C블록'].rows[ab]) layout.floor2['C블록'].rows[ab]=seatsC;
-      }
-      // D블록
-      const aw=row['AW'];
-      if(typeof aw==='number'&&aw>=1&&aw<=20){
+        // D블록: row52~65에서 AB행번호와 같은 행의 AM~AV
         const seatsD=Object.entries(row)
           .filter(([c,v])=>cn('AM')<=cn(c)&&cn(c)<=cn('AV')&&typeof v==='number'&&v>=1&&v<=15)
           .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
-        if(seatsD.length&&!layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw]=seatsD;
+        if(seatsD.length&&!layout.floor2['D블록'].rows[ab]) layout.floor2['D블록'].rows[ab]=seatsD;
       }
     }
     S.seatLayout=layout;
