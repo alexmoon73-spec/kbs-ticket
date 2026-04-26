@@ -663,55 +663,97 @@ setupUpload('seatBox','seatFile', async file => {
         if(seats.length) layout.floor1[def.name].rows[rowNum]=seats;
       });
     }
-    // ── 2층 A블록: 행번호는 C열, 좌석은 D열 이후 ──
+    // ── 2층 파싱 ──
     layout.floor2['A블록']={rows:{},align:'right',name:'A블록'};
     layout.floor2['B블록']={rows:{},align:'center',name:'B블록'};
     layout.floor2['C블록']={rows:{},align:'center',name:'C블록'};
     layout.floor2['D블록']={rows:{},align:'center',name:'D블록'};
     layout.floor2['E블록']={rows:{},align:'left',name:'E블록'};
-    // 2층 A블록 (row39~56: C열=행번호, D~Q=좌석)
-    for(let rn=39;rn<=56;rn++){
-      if(!rowMap[rn]) continue;
-      const row=rowMap[rn];
-      // A행번호: A열(row39~41) 또는 C열(row42~56)
-      const aRow = typeof row['A']==='number' ? row['A'] : (typeof row['C']==='number'&&row['C']>=1&&row['C']<=25?row['C']:null);
-      if(aRow!==null){
-        const lo=typeof row['A']==='number'?'B':'D';
+
+    // 2층 A블록: 각 행에서 가장 왼쪽 큰 숫자=행번호, 그 오른쪽 작은 숫자들=좌석
+    // 2층 E블록: 각 행에서 가장 오른쪽 큰 숫자=행번호(BC or BH), 그 왼쪽 작은 숫자들=좌석
+    // 구조: Row39~56 (A~BL 영역)
+    // A블록 행번호 위치: A(row39~41), C(row42~44), G(row45~48), L(row49~50), K(row51), J(row52), I(row53~54), N(row55~56)
+    // E블록 행번호 위치: BH(row39~44), BC(row43~51), AW(row47~51)
+    const a2rows = [
+      {rn:39,rn2:41, aCol:'A', sLo:'B',  sHi:'E'},
+      {rn:42,rn2:42, aCol:'C', sLo:'D',  sHi:'E'},
+      {rn:43,rn2:44, aCol:'C', sLo:'D',  sHi:'J'},
+      {rn:45,rn2:46, aCol:'G', sLo:'H',  sHi:'J'},
+      {rn:47,rn2:48, aCol:'G', sLo:'H',  sHi:'P'},
+      {rn:49,rn2:50, aCol:'L', sLo:'M',  sHi:'P'},
+      {rn:51,rn2:51, aCol:'K', sLo:'L',  sHi:'P'},
+      {rn:52,rn2:52, aCol:'J', sLo:'K',  sHi:'P'},
+      {rn:53,rn2:54, aCol:'I', sLo:'J',  sHi:'P'},
+      {rn:55,rn2:56, aCol:'N', sLo:'O',  sHi:'P'},
+    ];
+    const e2rows = [
+      {rn:39,rn2:41, eCol:'BH', sLo:'BI', sHi:'BL'},
+      {rn:42,rn2:42, eCol:'BH', sLo:'BI', sHi:'BJ'},
+      {rn:43,rn2:44, eCol:'BH', sLo:'BC', sHi:'BJ'}, // BH=행번호, BC~BJ=좌석
+      {rn:45,rn2:46, eCol:'BC', sLo:'BD', sHi:'BF'},
+      {rn:47,rn2:48, eCol:'BC', sLo:'BD', sHi:'BF'},
+      {rn:49,rn2:50, eCol:'AW', sLo:'AX', sHi:'BA'},
+      {rn:51,rn2:51, eCol:'AW', sLo:'AX', sHi:'BB'},
+    ];
+
+    for(const def of a2rows){
+      for(let rn=def.rn;rn<=def.rn2;rn++){
+        if(!rowMap[rn]) continue;
+        const row=rowMap[rn];
+        const rowNum=row[def.aCol];
+        if(typeof rowNum!=='number'||rowNum<1||rowNum>25) continue;
         const seats=Object.entries(row)
-          .filter(([c,v])=>cn(lo)<=cn(c)&&cn(c)<=cn('Q')&&typeof v==='number'&&v>=1&&v<=20)
+          .filter(([c,v])=>cn(def.sLo)<=cn(c)&&cn(c)<=cn(def.sHi)&&typeof v==='number'&&v>=1&&v<=20)
           .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
-        if(seats.length&&!layout.floor2['A블록'].rows[aRow]) layout.floor2['A블록'].rows[aRow]=seats;
-      }
-      // 2층 E블록 (BH=행번호, BI~BJ)
-      const bh=row['BH'];
-      if(typeof bh==='number'&&bh>=1&&bh<=25){
-        const seats=Object.entries(row)
-          .filter(([c,v])=>cn('BI')<=cn(c)&&cn(c)<=cn('BL')&&typeof v==='number'&&v>=1)
-          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
-        if(seats.length) layout.floor2['E블록'].rows[bh]=seats;
+        if(seats.length&&!layout.floor2['A블록'].rows[rowNum])
+          layout.floor2['A블록'].rows[rowNum]=seats;
       }
     }
-    // 2층 B블록(R~AA, AB=행번호), C블록(AC~AK), D블록(AM~AV, AW=행번호)
-    for(let rn=52;rn<=66;rn++){
+
+    for(const def of e2rows){
+      for(let rn=def.rn;rn<=def.rn2;rn++){
+        if(!rowMap[rn]) continue;
+        const row=rowMap[rn];
+        // E블록: BH가 행번호인 경우(row39~44)와 BC/AW가 행번호인 경우(row43~51)
+        const rowNum=row[def.eCol];
+        if(typeof rowNum!=='number'||rowNum<1||rowNum>25) continue;
+        const seats=Object.entries(row)
+          .filter(([c,v])=>{
+            const nc=cn(c);
+            // 행번호 컬럼 제외, 좌석 범위 내 양수
+            return nc>=cn(def.sLo)&&nc<=cn(def.sHi)&&typeof v==='number'&&v>=1&&v<=20&&c!==def.eCol;
+          })
+          .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
+        if(seats.length&&!layout.floor2['E블록'].rows[rowNum])
+          layout.floor2['E블록'].rows[rowNum]=seats;
+      }
+    }
+
+    // 2층 B블록(AB=행번호, R~AA=좌석), C블록(AB=행번호, AC~AK=좌석)
+    // 2층 D블록(AW=행번호, AM~AV=좌석) - row47~65
+    for(let rn=47;rn<=66;rn++){
       if(!rowMap[rn]) continue;
       const row=rowMap[rn];
+      // B/C블록
       const ab=row['AB'];
-      if(typeof ab==='number'&&ab>=1&&ab<=25){
-        const seats=Object.entries(row)
-          .filter(([c,v])=>cn('R')<=cn(c)&&cn(c)<=cn('AA')&&typeof v==='number'&&v>=1)
+      if(typeof ab==='number'&&ab>=1&&ab<=20){
+        const seatsB=Object.entries(row)
+          .filter(([c,v])=>cn('R')<=cn(c)&&cn(c)<=cn('AA')&&typeof v==='number'&&v>=1&&v<=15)
           .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
-        if(seats.length&&!layout.floor2['B블록'].rows[ab]) layout.floor2['B블록'].rows[ab]=seats;
+        if(seatsB.length&&!layout.floor2['B블록'].rows[ab]) layout.floor2['B블록'].rows[ab]=seatsB;
         const seatsC=Object.entries(row)
-          .filter(([c,v])=>cn('AC')<=cn(c)&&cn(c)<=cn('AK')&&typeof v==='number'&&v>=1)
+          .filter(([c,v])=>cn('AC')<=cn(c)&&cn(c)<=cn('AK')&&typeof v==='number'&&v>=1&&v<=15)
           .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
         if(seatsC.length&&!layout.floor2['C블록'].rows[ab]) layout.floor2['C블록'].rows[ab]=seatsC;
       }
+      // D블록
       const aw=row['AW'];
-      if(typeof aw==='number'&&aw>=1&&aw<=25){
-        const seats=Object.entries(row)
-          .filter(([c,v])=>cn('AM')<=cn(c)&&cn(c)<=cn('AV')&&typeof v==='number'&&v>=1)
+      if(typeof aw==='number'&&aw>=1&&aw<=20){
+        const seatsD=Object.entries(row)
+          .filter(([c,v])=>cn('AM')<=cn(c)&&cn(c)<=cn('AV')&&typeof v==='number'&&v>=1&&v<=15)
           .sort((a,b)=>cn(a[0])-cn(b[0])).map(([,v])=>v);
-        if(seats.length&&!layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw]=seats;
+        if(seatsD.length&&!layout.floor2['D블록'].rows[aw]) layout.floor2['D블록'].rows[aw]=seatsD;
       }
     }
     S.seatLayout=layout;
